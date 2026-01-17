@@ -350,44 +350,73 @@ class InvoiceHandler {
     static async handleReplaceSubmit(interaction) {
         const [, invoiceId] = interaction.customId.split(':');
         const rawData = interaction.fields.getTextInputValue('replacement_data');
-        
-        // Separar primera línea (User ID) del resto (credenciales)
-        const lines = rawData.trim().split('\n');
-        const userId = lines[0].trim();
-        const account = lines.slice(1).join('\n').trim() || 'No credentials provided';
 
-        // Validar que el User ID tenga formato correcto
-        if (!/^\d{17,20}$/.test(userId)) {
-            return interaction.reply({
-                content: '❌ El User ID debe estar en la primera línea y tener 17-20 dígitos.',
-                ephemeral: true
-            });
+        // Allow two modes:
+        // 1) First line is a Discord User ID (17-20 digits), following lines are credentials.
+        // 2) No user ID provided: the whole content is treated as credentials and will be posted in the channel.
+        const lines = rawData.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        let targetUser = null;
+        let account = '';
+
+        if (lines.length === 0) {
+            return interaction.reply({ content: '❌ No se proporcionaron credenciales.', ephemeral: true });
         }
 
-        // Obtener usuario por ID
-        const targetUser = await interaction.client.users.fetch(userId).catch(() => null);
+        const first = lines[0];
+        if (/^\d{17,20}$/.test(first)) {
+            // first line is a user id
+            const userId = first;
+            account = lines.slice(1).join('\n').trim() || 'No credentials provided';
+            if (!account || account === 'No credentials provided') {
+                return interaction.reply({ content: '❌ Debes incluir las credenciales después del User ID en la siguiente línea.', ephemeral: true });
+            }
 
-        if (!targetUser) {
-            return interaction.reply({
-                content: '❌ No se pudo encontrar al usuario. Verifica que el ID sea correcto.',
-                ephemeral: true
-            });
+            // try fetch user, but don't fail if not found
+            targetUser = await interaction.client.users.fetch(userId).catch(() => null);
+        } else {
+            // treat entire input as account
+            account = rawData.trim();
+            // no targetUser
         }
 
-        // Enviar en el canal público (visible para todos)
         const replacementEmbed = new EmbedBuilder()
             .setTitle('🔄 Replacement Ready')
-            .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
+            .setDescription(targetUser ? `${targetUser.toString()}, your replacement is ready. Use the account below to access your product.` : `Replacement ready. Use the account below to access the product.`)
             .setColor(config.colors.success)
             .addFields(
-                { name: '🆔 Order ID', value: invoiceId, inline: true },
+                { name: '🆔 Order ID', value: invoiceId || 'Unknown', inline: true },
                 { name: '👤 Staff', value: interaction.user.toString(), inline: true },
                 { name: '📝 Account / Credentials', value: `\`\`\`\n${account}\n\`\`\``, inline: false }
             )
             .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
             .setTimestamp();
 
-        await interaction.reply({ embeds: [replacementEmbed] });
+        // Reply publicly in the same channel so the client can see it
+        try {
+            await interaction.reply({ embeds: [replacementEmbed] });
+        } catch (err) {
+            console.error('[handleReplaceSubmit] failed to reply with replacement embed:', err);
+            try {
+                // fallback: send as channel message
+                if (interaction.channel && interaction.channel.send) {
+                    await interaction.channel.send({ embeds: [replacementEmbed] });
+                    // acknowledge to the staff who submitted the modal
+                    if (!interaction.replied) await interaction.followUp({ content: '✅ Replacement posted in channel.', ephemeral: true });
+                }
+            } catch (err2) {
+                console.error('[handleReplaceSubmit] fallback send failed:', err2);
+                if (!interaction.replied) await interaction.reply({ content: '❌ Algo falló al enviar el reemplazo. Revisa los logs.', ephemeral: true });
+            }
+        }
+
+        // If we found a target user, also try to DM them the replacement (best-effort)
+        if (targetUser) {
+            try {
+                await targetUser.send({ embeds: [replacementEmbed] });
+            } catch (dmErr) {
+                console.warn('[handleReplaceSubmit] could not DM target user:', dmErr && dmErr.message ? dmErr.message : dmErr);
+            }
+        }
     }
 }
 
