@@ -256,7 +256,7 @@ function buildInvoiceEmbed(invoice, interaction) {
 
   // Botones
   const seeItemsBtn = new ButtonBuilder()
-    .setCustomId(`invoice_items:${shortId}`)
+    .setCustomId(`invoice_items:${shortId}:${interaction.user.id}`)
     .setLabel('See Items')
     .setStyle(ButtonStyle.Primary)
     .setEmoji('📦');

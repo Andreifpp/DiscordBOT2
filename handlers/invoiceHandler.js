@@ -120,9 +120,23 @@ class InvoiceHandler {
     }
 
     static async showItems(interaction) {
-        const orderId = interaction.customId.split(':')[1];
+        const parts = interaction.customId.split(':');
+        const orderId = parts[1];
+        const invokerId = parts[2] || null;
 
-        await interaction.deferReply({ ephemeral: true });
+        // Safely defer reply — sometimes interactions expire and deferReply throws Unknown interaction
+        try {
+            await interaction.deferReply({ ephemeral: true });
+        } catch (deferErr) {
+            console.warn('[invoice_items] deferReply failed:', deferErr && deferErr.code ? deferErr.code : deferErr);
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: 'Procesando... (fallback)', ephemeral: true });
+                }
+            } catch (replyErr) {
+                console.warn('[invoice_items] fallback reply failed:', replyErr && replyErr.code ? replyErr.code : replyErr);
+            }
+        }
 
         try {
             const invoice = await fetchInvoiceByOrderId(orderId);
@@ -181,6 +195,11 @@ class InvoiceHandler {
                 if (!isBuyer && interaction.message && interaction.message.interaction && interaction.message.interaction.user && interaction.message.interaction.user.id) {
                     const originalInvokerId = interaction.message.interaction.user.id;
                     if (String(originalInvokerId) === String(interaction.user.id)) isBuyer = true;
+                }
+
+                // If the button included the invokerId, allow that user as buyer (works even if backend lacks discord id)
+                if (!isBuyer && invokerId && String(invokerId) === String(interaction.user.id)) {
+                    isBuyer = true;
                 }
             } catch (e) {
                 console.warn('[invoice_items] buyer detection error:', e && e.message ? e.message : e);
