@@ -338,13 +338,93 @@ class InvoiceHandler {
             .setPlaceholder('442385253525618699\nemail@gmail.com:password123')
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(true)
-            .setMinLength(20)
-            .setMaxLength(1000);
+            .setMinLength(3)
+            .setMaxLength(2000);
 
         const row = new ActionRowBuilder().addComponents(dataInput);
         modal.addComponents(row);
 
-        return interaction.showModal(modal);
+        // Try to show the modal; some environments return Unknown interaction for modals
+        try {
+            return await interaction.showModal(modal);
+        } catch (err) {
+            console.warn('[showReplaceModal] showModal failed, falling back to DM collector:', err && err.code ? err.code : err);
+
+            // Fallback: ask the staff to DM the bot with the replacement data, then post it in the original channel
+            try {
+                const dm = await interaction.user.createDM();
+                await dm.send(`Please reply to this DM with the replacement data for order ${invoiceId}.\nFormat:\n- Optional first line: Discord User ID (to DM the buyer)\n- Following lines: credentials (email:password or user:pass)\n\nExample:\n442385253525618699\nemail@example.com:password123`);
+
+                const collected = await dm.awaitMessages({ filter: m => m.author.id === interaction.user.id, max: 1, time: 5 * 60 * 1000 });
+                if (!collected || collected.size === 0) {
+                    await dm.send('No data received. Aborting replacement.');
+                    return;
+                }
+
+                const rawData = collected.first().content;
+                // Reuse the modal submit logic: parse first line for userId
+                const lines = rawData.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                let targetUser = null;
+                let account = '';
+
+                if (lines.length === 0) {
+                    await dm.send('Empty data received. Aborting.');
+                    return;
+                }
+
+                const first = lines[0];
+                if (/^\d{17,20}$/.test(first)) {
+                    const userId = first;
+                    account = lines.slice(1).join('\n').trim() || 'No credentials provided';
+                    targetUser = await interaction.client.users.fetch(userId).catch(() => null);
+                } else {
+                    account = rawData.trim();
+                }
+
+                const replacementEmbed = new EmbedBuilder()
+                    .setTitle('🔄 Replacement Ready')
+                    .setDescription(targetUser ? `${targetUser.toString()}, your replacement is ready. Use the account below to access your product.` : `Replacement ready. Use the account below to access the product.`)
+                    .setColor(config.colors.success)
+                    .addFields(
+                        { name: '🆔 Order ID', value: invoiceId || 'Unknown', inline: true },
+                        { name: '👤 Staff', value: interaction.user.toString(), inline: true },
+                        { name: '📝 Account / Credentials', value: `\`\`\`\n${account}\n\`\`\``, inline: false }
+                    )
+                    .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+                    .setTimestamp();
+
+                // Post in original channel
+                try {
+                    if (interaction.channel && interaction.channel.send) {
+                        await interaction.channel.send({ embeds: [replacementEmbed] });
+                        await dm.send('Replacement posted in channel.');
+                    } else {
+                        await dm.send('Could not post replacement in the original channel.');
+                    }
+                } catch (postErr) {
+                    console.error('[showReplaceModal] failed to post replacement in channel:', postErr);
+                    await dm.send('Failed to post replacement in channel. See logs.');
+                }
+
+                // Try DM buyer if available
+                if (targetUser) {
+                    try {
+                        await targetUser.send({ embeds: [replacementEmbed] });
+                        await dm.send('Also sent replacement via DM to the buyer.');
+                    } catch (dmErr) {
+                        console.warn('[showReplaceModal] could not DM buyer:', dmErr && dmErr.message ? dmErr.message : dmErr);
+                        await dm.send('Could not DM buyer.');
+                    }
+                }
+            } catch (dmFlowErr) {
+                console.error('[showReplaceModal] fallback DM flow failed:', dmFlowErr);
+                try {
+                    if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ No pude abrir el modal ni procesar el fallback. Contacta al administrador.', ephemeral: true });
+                } catch (replyErr) {
+                    console.warn('[showReplaceModal] final reply failed:', replyErr);
+                }
+            }
+        }
     }
 
     static async handleReplaceSubmit(interaction) {
