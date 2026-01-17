@@ -1,4 +1,4 @@
-const { EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const { EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
 
 // small fetch helper with timeout
@@ -138,6 +138,49 @@ class InvoiceHandler {
 
             if (!Array.isArray(items) || items.length === 0) {
                 return interaction.editReply({ content: `❌ No hay items en esta orden.` });
+            }
+
+            // Determine if the user is staff (allowed to view sensitive credentials)
+            const member = interaction.member;
+            const allowedRoles = config.allowedCloseRoles || [];
+            const isStaff = Boolean(
+                member &&
+                    member.permissions &&
+                    member.permissions.has &&
+                    member.permissions.has(PermissionFlagsBits.Administrator) ||
+                    (member && member.roles && member.roles.cache && (member.roles.cache.has(config.supportRoleId) || member.roles.cache.some(r => allowedRoles.includes(String(r.id)))))
+            );
+
+            // Determine if the interaction user is the buyer (so they can see their credentials)
+            let isBuyer = false;
+            try {
+                const possibleBuyerIds = [
+                    invoice && invoice.discord_id,
+                    invoice && invoice.discordId,
+                    invoice && invoice.buyer_discord,
+                    invoice && invoice.buyer_discord_id,
+                    invoice && invoice.user_id,
+                    invoice && invoice.userId,
+                    invoice && invoice.owner_discord_id,
+                    invoice && invoice.ownerId,
+                ].filter(Boolean).map(String);
+
+                if (possibleBuyerIds.includes(String(interaction.user.id))) {
+                    isBuyer = true;
+                }
+
+                if (!isBuyer && invoice && invoice.raw) {
+                    const raw = invoice.raw;
+                    const cand = raw && (raw.discord_id || (raw.metadata && (raw.metadata.discordId || raw.metadata.discord_id)) || (raw.buyer && (raw.buyer.discord_id || raw.buyer.id)));
+                    if (cand && String(cand) === String(interaction.user.id)) isBuyer = true;
+                }
+
+                if (!isBuyer && interaction.message && interaction.message.interaction && interaction.message.interaction.user && interaction.message.interaction.user.id) {
+                    const originalInvokerId = interaction.message.interaction.user.id;
+                    if (String(originalInvokerId) === String(interaction.user.id)) isBuyer = true;
+                }
+            } catch (e) {
+                console.warn('[invoice_items] buyer detection error:', e && e.message ? e.message : e);
             }
 
             const embed = new EmbedBuilder()
