@@ -160,13 +160,19 @@ class InvoiceHandler {
             // Determine if the user is staff (allowed to view sensitive credentials)
             const member = interaction.member;
             const allowedRoles = config.allowedCloseRoles || [];
-            const isStaff = Boolean(
+            let isStaff = Boolean(
                 member &&
                     member.permissions &&
                     member.permissions.has &&
                     member.permissions.has(PermissionFlagsBits.Administrator) ||
                     (member && member.roles && member.roles.cache && (member.roles.cache.has(config.supportRoleId) || member.roles.cache.some(r => allowedRoles.includes(String(r.id)))))
             );
+            // Consider guild owner as staff as well
+            try {
+                if (!isStaff && interaction.guild && String(interaction.guild.ownerId) === String(interaction.user.id)) isStaff = true;
+            } catch (e) {
+                // ignore
+            }
 
             // Determine if the interaction user is the buyer (so they can see their credentials)
             let isBuyer = false;
@@ -276,6 +282,28 @@ class InvoiceHandler {
                         email = (itemObj && itemObj.email) ? itemObj.email : ((itemObj && itemObj.account_email) ? itemObj.account_email : '—');
                         password = (itemObj && itemObj.password) ? itemObj.password : ((itemObj && itemObj.account_password) ? itemObj.account_password : '—');
                         console.log(`[invoice_items] Using fallback credentials:`, email ? '***' : '-', password ? '***' : '-');
+                }
+
+                // If this item includes a "delivered" array (SellAuth style), render each delivered line separately
+                if (itemObj && Array.isArray(itemObj.delivered) && itemObj.delivered.length) {
+                    itemObj.delivered.forEach((dline, j) => {
+                        const ds = (typeof dline === 'string') ? dline.trim() : String(dline);
+                        let e = '—', p = '—';
+                        const cm = ds.match(/([^\s|:]+@[^\s|:]+):([^|\s]+)/) || ds.match(/([^\s|:]+):([^|\s]+)/);
+                        if (cm) {
+                            e = cm[1];
+                            p = cm[2];
+                        }
+                        const showCredentialsDelivered = Boolean(isStaff || isBuyer);
+                        const emailDisplayDelivered = showCredentialsDelivered ? (e || '—') : (e ? '🔒 Hidden (staff only)' : '—');
+                        const passDisplayDelivered = showCredentialsDelivered ? (p || '—') : (p ? '🔒 Hidden (staff only)' : '—');
+                        embed.addFields({
+                            name: `${idx + 1}.${j + 1} ${name}`,
+                            value: `📧 Email: \`${emailDisplayDelivered}\`\n🔑 Password: \`${passDisplayDelivered}\``,
+                            inline: false
+                        });
+                    });
+                    return; // continue to next item in forEach
                 }
 
                 // Decide what to display depending on role (staff) or buyer status
