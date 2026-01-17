@@ -348,81 +348,18 @@ class InvoiceHandler {
         try {
             return await interaction.showModal(modal);
         } catch (err) {
-            console.warn('[showReplaceModal] showModal failed, falling back to DM collector:', err && err.code ? err.code : err);
+            console.warn('[showReplaceModal] showModal failed:', err && err.code ? err.code : err);
 
-            // Fallback: ask the staff to DM the bot with the replacement data, then post it in the original channel
+            // Simpler fallback: reply ephemerally with clear DM instructions to the staff member
             try {
-                const dm = await interaction.user.createDM();
-                await dm.send(`Please reply to this DM with the replacement data for order ${invoiceId}.\nFormat:\n- Optional first line: Discord User ID (to DM the buyer)\n- Following lines: credentials (email:password or user:pass)\n\nExample:\n442385253525618699\nemail@example.com:password123`);
-
-                const collected = await dm.awaitMessages({ filter: m => m.author.id === interaction.user.id, max: 1, time: 5 * 60 * 1000 });
-                if (!collected || collected.size === 0) {
-                    await dm.send('No data received. Aborting replacement.');
-                    return;
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: `No pude abrir el modal. Por favor envíame por DM al bot los datos del reemplazo para la orden ${invoiceId}.\nFormato:\n- (Opcional) primera línea: Discord User ID para enviarle el reemplazo vía DM.\n- Líneas siguientes: credenciales (ej. user@example.com:password)\n\nEjemplo:\n442385253525618699\nemail@example.com:password123`,
+                        ephemeral: true
+                    });
                 }
-
-                const rawData = collected.first().content;
-                // Reuse the modal submit logic: parse first line for userId
-                const lines = rawData.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                let targetUser = null;
-                let account = '';
-
-                if (lines.length === 0) {
-                    await dm.send('Empty data received. Aborting.');
-                    return;
-                }
-
-                const first = lines[0];
-                if (/^\d{17,20}$/.test(first)) {
-                    const userId = first;
-                    account = lines.slice(1).join('\n').trim() || 'No credentials provided';
-                    targetUser = await interaction.client.users.fetch(userId).catch(() => null);
-                } else {
-                    account = rawData.trim();
-                }
-
-                const replacementEmbed = new EmbedBuilder()
-                    .setTitle('🔄 Replacement Ready')
-                    .setDescription(targetUser ? `${targetUser.toString()}, your replacement is ready. Use the account below to access your product.` : `Replacement ready. Use the account below to access the product.`)
-                    .setColor(config.colors.success)
-                    .addFields(
-                        { name: '🆔 Order ID', value: invoiceId || 'Unknown', inline: true },
-                        { name: '👤 Staff', value: interaction.user.toString(), inline: true },
-                        { name: '📝 Account / Credentials', value: `\`\`\`\n${account}\n\`\`\``, inline: false }
-                    )
-                    .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
-                    .setTimestamp();
-
-                // Post in original channel
-                try {
-                    if (interaction.channel && interaction.channel.send) {
-                        await interaction.channel.send({ embeds: [replacementEmbed] });
-                        await dm.send('Replacement posted in channel.');
-                    } else {
-                        await dm.send('Could not post replacement in the original channel.');
-                    }
-                } catch (postErr) {
-                    console.error('[showReplaceModal] failed to post replacement in channel:', postErr);
-                    await dm.send('Failed to post replacement in channel. See logs.');
-                }
-
-                // Try DM buyer if available
-                if (targetUser) {
-                    try {
-                        await targetUser.send({ embeds: [replacementEmbed] });
-                        await dm.send('Also sent replacement via DM to the buyer.');
-                    } catch (dmErr) {
-                        console.warn('[showReplaceModal] could not DM buyer:', dmErr && dmErr.message ? dmErr.message : dmErr);
-                        await dm.send('Could not DM buyer.');
-                    }
-                }
-            } catch (dmFlowErr) {
-                console.error('[showReplaceModal] fallback DM flow failed:', dmFlowErr);
-                try {
-                    if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ No pude abrir el modal ni procesar el fallback. Contacta al administrador.', ephemeral: true });
-                } catch (replyErr) {
-                    console.warn('[showReplaceModal] final reply failed:', replyErr);
-                }
+            } catch (replyErr) {
+                console.warn('[showReplaceModal] fallback ephemeral reply failed:', replyErr);
             }
         }
     }
