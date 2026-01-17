@@ -1,0 +1,40 @@
+{
+  "clientId": "1461012729060921661",
+  "guildId": "1457821728788054151",
+  "ticketsCategory": "1457823219473191095",
+  "supportRole": "1457827303957594204",
+  "adminRole": "1457826971374588027",
+  "logChannel": "",
+  "ticketPanelChannel": "1457823219473191095",
+  "reviewChannel": "1458586114989228135",
+  "supabaseUrl": "https://twewcjgphqunpjchwliv.supabase.co",
+  "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR3ZXdjamdwaHF1bnBqY2h3bGl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjQwNDksImV4cCI6MjA3Nzk0MDA0OX0.GTIQg6CRy9h1RZElisKFWG-3Cqup2KqrDxxSwLk105s",
+  "supabaseTable": "orders",
+  "invoicesApiUrl": "",
+  "colors": {
+    "primary": "#9d4edd",
+    "secondary": "#c77dff",
+    "success": "#06d6a0",
+    "error": "#ef476f",
+    "warning": "#ffd166"
+  },
+  "emojis": {
+    "ticket": "🎫",
+    "purchases": "🛒",
+    "support": "💬",
+    "replace": "<:wheeling:1459207059001315461>",
+    "email": "<:chat:1459209323560435712>",
+    "id": "<:user:1457824415839424683>",
+    "notReceived": "📦",
+    "close": "🔒",
+    "delete": "🗑️",
+    "add": "➕",
+    "remove": "➖"
+  },
+  "allowedCloseRoles": [
+    "1457826971374588027",
+    "1457827087950811368",
+    "1457827303957594204",
+    "1434537045103083530"
+  ]
+}

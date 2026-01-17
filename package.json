@@ -1,0 +1,32 @@
+{
+  "name": "plug-market-tickets",
+  "version": "1.0.0",
+  "description": "Bot de tickets para Plug Market - Sistema de soporte avanzado",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "deploy": "node deploy-commands.js && node index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "tickets",
+    "plug-market",
+    "support"
+  ],
+  "author": "Plug Market Team",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^17.2.3",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

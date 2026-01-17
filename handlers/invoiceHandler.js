@@ -1,0 +1,280 @@
+const { EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const config = require('../config');
+
+// small fetch helper with timeout
+function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(t));
+}
+
+async function fetchSellAuthInvoice(invoiceId) {
+    // prefer config keys
+    const apiKey = config.sellauthApiKey || process.env.SELLAUTH_API_KEY;
+    const shopId = config.sellauthShopId || process.env.SELLAUTH_SHOP_ID;
+
+    if (!apiKey || !shopId) {
+        console.warn('[fetchSellAuthInvoice] SellAuth not configured.');
+        return null;
+    }
+
+    const url = `https://api.sellauth.com/v1/shops/${shopId}/invoices/${encodeURIComponent(invoiceId)}`;
+    const res = await fetchWithTimeout(url, {
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'application/json'
+        }
+    });
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.warn(`[fetchSellAuthInvoice] SellAuth API responded ${res.status} ${res.statusText} for invoice ${invoiceId}`);
+        if (res.status === 404) return null;
+        throw new Error(`SellAuth API error ${res.status}: ${text || res.statusText}`);
+    }
+
+    const data = await res.json().catch(() => null);
+    const inv = data?.data ?? data;
+
+    return {
+        id: inv?.id ?? inv?.invoice_id ?? invoiceId,
+        status: inv?.status ?? inv?.state ?? 'Unknown',
+        email: inv?.email ?? inv?.buyer_email ?? inv?.customer_email ?? inv?.customer?.email ?? '—',
+        created_at: inv?.created_at ?? inv?.createdAt ?? inv?.created ?? null,
+        completed_at: inv?.completed_at ?? inv?.completedAt ?? inv?.completed ?? null,
+        total_price: inv?.total_price ?? inv?.total ?? inv?.amount ?? inv?.price ?? null,
+        total_paid: inv?.total_paid ?? inv?.paid ?? null,
+        items: inv?.items ?? inv?.invoice_items ?? inv?.products ?? [],
+        replace: inv?.replace ?? inv?.is_replacement ?? 'No',
+        raw: inv
+    };
+}
+
+async function fetchInvoiceByOrderId(orderId) {
+    const supabaseUrl = config.supabaseUrl || process.env.SUPABASE_URL;
+    const supabaseKey = config.supabaseKey || process.env.SUPABASE_KEY;
+    const supabaseTable = config.supabaseTable || process.env.SUPABASE_TABLE || 'orders';
+    const invoicesApiUrl = config.invoicesApiUrl || process.env.INVOICES_API_URL;
+
+    // 1) Supabase
+    if (supabaseUrl && supabaseKey) {
+        const headers = {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Accept: 'application/json'
+        };
+
+        let url = `${supabaseUrl}/rest/v1/${supabaseTable}?short_id=eq.${encodeURIComponent(orderId)}&select=*&limit=1`;
+        let res = await fetchWithTimeout(url, { headers });
+        if (res.ok) {
+            const rows = await res.json();
+            if (Array.isArray(rows) && rows[0]) return rows[0];
+        }
+
+        if (orderId.includes('-')) {
+            url = `${supabaseUrl}/rest/v1/${supabaseTable}?id=eq.${encodeURIComponent(orderId)}&select=*&limit=1`;
+            res = await fetchWithTimeout(url, { headers });
+            if (res.ok) {
+                const rows = await res.json();
+                if (Array.isArray(rows) && rows[0]) return rows[0];
+            }
+        }
+        return null;
+    }
+
+    // 2) API propia
+    if (invoicesApiUrl) {
+        const url = `${invoicesApiUrl}?order_id=${encodeURIComponent(orderId)}`;
+        const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error(`API error (${res.status})`);
+        const data = await res.json();
+        return data?.invoice ?? data;
+    }
+
+    // 3) SellAuth
+    const sellAuthInvoice = await fetchSellAuthInvoice(orderId);
+    if (sellAuthInvoice) return sellAuthInvoice;
+
+    // Nothing configured
+    throw new Error('No billing backend configured. Set SUPABASE_URL/SUPABASE_KEY, INVOICES_API_URL, or SELLAUTH_API_KEY + SELLAUTH_SHOP_ID.');
+}
+
+class InvoiceHandler {
+    static async handleInteraction(interaction) {
+        if (interaction.isButton()) {
+            if (interaction.customId.startsWith('invoice_items:')) {
+                await this.showItems(interaction);
+            } else if (interaction.customId.startsWith('invoice_replace:')) {
+                await this.showReplaceModal(interaction);
+            }
+        }
+
+        if (interaction.isModalSubmit()) {
+            if (interaction.customId.startsWith('replace_account_modal:')) {
+                await this.handleReplaceSubmit(interaction);
+            }
+        }
+    }
+
+    static async showItems(interaction) {
+        const orderId = interaction.customId.split(':')[1];
+
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            const invoice = await fetchInvoiceByOrderId(orderId);
+            
+            if (!invoice) {
+                return interaction.editReply({ content: `❌ No se encontró la orden.` });
+            }
+
+            let items = (invoice && invoice.items) ? invoice.items : ((invoice && invoice.products) ? invoice.products : []);
+            if (typeof items === 'string') {
+                try { items = JSON.parse(items); } catch (_) { items = []; }
+            }
+
+            // Log para depurar
+            console.log('[invoice_items] Raw items:', JSON.stringify(items, null, 2));
+
+            if (!Array.isArray(items) || items.length === 0) {
+                return interaction.editReply({ content: `❌ No hay items en esta orden.` });
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`📦 Order Items • ${orderId}`)
+                .setColor(config.colors.primary)
+                .setFooter({ text: 'Max Market', iconURL: interaction.client.user.displayAvatarURL() })
+                .setTimestamp();
+
+            items.forEach((it, idx) => {
+                console.log(`[invoice_items] Item ${idx}:`, typeof it, JSON.stringify(it));
+                
+                let name, email, password;
+                
+                // Si es un string, parsearlo primero
+                let itemObj = it;
+                if (typeof it === 'string') {
+                    try {
+                        itemObj = JSON.parse(it);
+                        console.log(`[invoice_items] Parsed item ${idx}:`, JSON.stringify(itemObj));
+                    } catch (e) {
+                        console.error(`[invoice_items] Failed to parse item ${idx}:`, e);
+                        itemObj = { name: it };
+                    }
+                }
+                
+                // Construir nombre del producto
+                if (itemObj && itemObj.pid && itemObj.plan) {
+                    name = `${itemObj.pid.charAt(0).toUpperCase() + itemObj.pid.slice(1)} ${itemObj.plan}`;
+                } else {
+                    name = (itemObj && itemObj.name) ? itemObj.name : ((itemObj && itemObj.title) ? itemObj.title : ((itemObj && itemObj.plan) ? itemObj.plan : `Item ${idx + 1}`));
+                }
+                
+                // Buscar credenciales en itemObj.credentials primero
+                if (itemObj && itemObj.credentials && typeof itemObj.credentials === 'object') {
+                    email = (itemObj.credentials && itemObj.credentials.email) ? itemObj.credentials.email : '—';
+                    password = (itemObj.credentials && itemObj.credentials.password) ? itemObj.credentials.password : '—';
+                    console.log(`[invoice_items] Found credentials in object:`, email ? '***' : '-', password ? '***' : '-');
+                } else if (itemObj && typeof itemObj.credentials === 'string') {
+                    // Si credentials es un string JSON, parsearlo
+                    try {
+                        const creds = JSON.parse(itemObj.credentials);
+                            email = (creds && creds.email) ? creds.email : '—';
+                            password = (creds && creds.password) ? creds.password : '—';
+                            console.log(`[invoice_items] Parsed credentials from string:`, email ? '***' : '-', password ? '***' : '-');
+                    } catch {
+                        email = '—';
+                        password = '—';
+                    }
+                } else {
+                        email = (itemObj && itemObj.email) ? itemObj.email : ((itemObj && itemObj.account_email) ? itemObj.account_email : '—');
+                        password = (itemObj && itemObj.password) ? itemObj.password : ((itemObj && itemObj.account_password) ? itemObj.account_password : '—');
+                        console.log(`[invoice_items] Using fallback credentials:`, email ? '***' : '-', password ? '***' : '-');
+                }
+
+                // Decide what to display depending on role (staff) or buyer status
+                const showCredentials = Boolean(isStaff || isBuyer);
+                const emailDisplay = showCredentials ? (email || '—') : (email ? '🔒 Hidden (staff only)' : '—');
+                const passDisplay = showCredentials ? (password || '—') : (password ? '🔒 Hidden (staff only)' : '—');
+
+                embed.addFields({
+                    name: `${idx + 1}. ${name}`,
+                    value: `📧 Email: \`${emailDisplay}\`\n🔑 Password: \`${passDisplay}\``,
+                    inline: false
+                });
+            });
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (err) {
+            console.error('Error fetching items:', err);
+            await interaction.editReply({ content: `❌ Error obteniendo los items: ${err.message}` });
+        }
+    }
+
+    static async showReplaceModal(interaction) {
+        const invoiceId = interaction.customId.split(':')[1];
+
+        const modal = new ModalBuilder()
+            .setCustomId(`replace_account_modal:${invoiceId}`)
+            .setTitle('Mark as Replacement');
+
+        const dataInput = new TextInputBuilder()
+            .setCustomId('replacement_data')
+            .setLabel('Línea 1: User ID | Línea 2+: Credenciales')
+            .setPlaceholder('442385253525618699\nemail@gmail.com:password123')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMinLength(20)
+            .setMaxLength(1000);
+
+        const row = new ActionRowBuilder().addComponents(dataInput);
+        modal.addComponents(row);
+
+        return interaction.showModal(modal);
+    }
+
+    static async handleReplaceSubmit(interaction) {
+        const [, invoiceId] = interaction.customId.split(':');
+        const rawData = interaction.fields.getTextInputValue('replacement_data');
+        
+        // Separar primera línea (User ID) del resto (credenciales)
+        const lines = rawData.trim().split('\n');
+        const userId = lines[0].trim();
+        const account = lines.slice(1).join('\n').trim() || 'No credentials provided';
+
+        // Validar que el User ID tenga formato correcto
+        if (!/^\d{17,20}$/.test(userId)) {
+            return interaction.reply({
+                content: '❌ El User ID debe estar en la primera línea y tener 17-20 dígitos.',
+                ephemeral: true
+            });
+        }
+
+        // Obtener usuario por ID
+        const targetUser = await interaction.client.users.fetch(userId).catch(() => null);
+
+        if (!targetUser) {
+            return interaction.reply({
+                content: '❌ No se pudo encontrar al usuario. Verifica que el ID sea correcto.',
+                ephemeral: true
+            });
+        }
+
+        // Enviar en el canal público (visible para todos)
+        const replacementEmbed = new EmbedBuilder()
+            .setTitle('🔄 Replacement Ready')
+            .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
+            .setColor(config.colors.success)
+            .addFields(
+                { name: '🆔 Order ID', value: invoiceId, inline: true },
+                { name: '👤 Staff', value: interaction.user.toString(), inline: true },
+                { name: '📝 Account / Credentials', value: `\`\`\`\n${account}\n\`\`\``, inline: false }
+            )
+            .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [replacementEmbed] });
+    }
+}
+
+module.exports = InvoiceHandler;
