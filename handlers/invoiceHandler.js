@@ -36,6 +36,9 @@ async function fetchSellAuthInvoice(invoiceId) {
     const data = await res.json().catch(() => null);
     const inv = data?.data ?? data;
 
+    // Try to normalize deliverables/items from different backends (SellAuth, Stripe, custom)
+    const items = inv?.items ?? inv?.invoice_items ?? inv?.products ?? inv?.deliverables ?? inv?.delivered ?? inv?.delivered_items ?? inv?.deliverable_items ?? inv?.lines ?? [];
+
     return {
         id: inv?.id ?? inv?.invoice_id ?? invoiceId,
         status: inv?.status ?? inv?.state ?? 'Unknown',
@@ -44,7 +47,7 @@ async function fetchSellAuthInvoice(invoiceId) {
         completed_at: inv?.completed_at ?? inv?.completedAt ?? inv?.completed ?? null,
         total_price: inv?.total_price ?? inv?.total ?? inv?.amount ?? inv?.price ?? null,
         total_paid: inv?.total_paid ?? inv?.paid ?? null,
-        items: inv?.items ?? inv?.invoice_items ?? inv?.products ?? [],
+        items: items,
         replace: inv?.replace ?? inv?.is_replacement ?? 'No',
         raw: inv
     };
@@ -197,12 +200,14 @@ class InvoiceHandler {
                 // Si es un string, parsearlo primero
                 let itemObj = it;
                 if (typeof it === 'string') {
+                    // Try JSON parse first (some backends serialize items as JSON strings)
                     try {
                         itemObj = JSON.parse(it);
                         console.log(`[invoice_items] Parsed item ${idx}:`, JSON.stringify(itemObj));
                     } catch (e) {
-                        console.error(`[invoice_items] Failed to parse item ${idx}:`, e);
-                        itemObj = { name: it };
+                        // Not JSON — keep original string in a known property
+                        console.log(`[invoice_items] Item ${idx} is a raw string, attempting pattern parse`);
+                        itemObj = { _raw: it };
                     }
                 }
                 
@@ -228,6 +233,25 @@ class InvoiceHandler {
                     } catch {
                         email = '—';
                         password = '—';
+                    }
+                } else if (itemObj && itemObj._raw && typeof itemObj._raw === 'string') {
+                    // Some systems (like SellAuth deliverables) return lines like:
+                    // "email@example.com:password|Country = AR" or "email:pass"
+                    const s = itemObj._raw.trim();
+                    // Try to extract email:password patterns
+                    const credMatch = s.match(/([^\s|:]+@[^\s|:]+):([^|\s]+)/);
+                    if (credMatch) {
+                        email = credMatch[1];
+                        password = credMatch[2];
+                        console.log(`[invoice_items] Extracted credentials from raw string ${idx}:`, email ? '***' : '-', password ? '***' : '-');
+                    } else {
+                        // Maybe simple user:pass without email
+                        const simpleMatch = s.match(/([^\s|:]+):([^|\s]+)/);
+                        if (simpleMatch) {
+                            email = simpleMatch[1];
+                            password = simpleMatch[2];
+                            console.log(`[invoice_items] Extracted simple credentials from raw string ${idx}:`, email ? '***' : '-', password ? '***' : '-');
+                        }
                     }
                 } else {
                         email = (itemObj && itemObj.email) ? itemObj.email : ((itemObj && itemObj.account_email) ? itemObj.account_email : '—');
