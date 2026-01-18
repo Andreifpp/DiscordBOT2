@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: max-market-tickets
     env: node
     buildCommand: npm install
