@@ -201,10 +201,11 @@ server.listen(PORT, () => {
     console.log(`🌐 HTTP Server running on port ${PORT}`);
 });
 
-// Iniciar el bot
+// Iniciar el bot (solo si TOKEN está presente)
 if (!process.env.TOKEN) {
-    console.error("❌ TOKEN no definido en variables de entorno");
-    process.exit(1);
+    console.error("❌ TOKEN no definido en variables de entorno. El bot no iniciará sesión en Discord. Agrega TOKEN en .env para conectarlo.");
+} else {
+    client.login(process.env.TOKEN).catch(err => {
+        console.error('Error iniciando sesión en Discord:', err);
+    });
 }
-
-client.login(process.env.TOKEN);
