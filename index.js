@@ -264,10 +264,32 @@ if (!discordToken) {
     const tokenSource = process.env.DISCORD_TOKEN ? 'DISCORD_TOKEN' : (process.env.TOKEN ? 'TOKEN' : 'unknown');
     console.log(`🔑 Token environment variable detected: ${tokenSource}`);
 
-    console.log('[startup] calling client.login() — attempting to connect to Discord gateway...');
-    client.login(discordToken).then(() => {
-        console.log('[startup] client.login() resolved (login promise fulfilled). Waiting for Ready event...');
-    }).catch(err => {
-        console.error('Error iniciando sesión en Discord (client.login rejected):', err);
-    });
+    (async () => {
+        try {
+            console.log('[startup] performing REST token validity check (GET /users/@me)');
+            const token = discordToken;
+            const res = await fetch('https://discord.com/api/v10/users/@me', {
+                headers: { Authorization: `Bot ${token}`, Accept: 'application/json' }
+            });
+
+            if (!res.ok) {
+                const txt = await res.text().catch(() => '');
+                console.error(`[startup] REST token check failed: ${res.status} ${res.statusText} ${txt}`);
+                console.error('[startup] Aborting gateway login due to invalid token or REST API access.');
+                return;
+            }
+
+            const me = await res.json().catch(() => null);
+            console.log(`[startup] REST token valid. Bot user: ${me ? `${me.username}#${me.discriminator || me.discriminator}` : 'unknown'} (id: ${me ? me.id : 'unknown'})`);
+
+            console.log('[startup] calling client.login() — attempting to connect to Discord gateway...');
+            client.login(token).then(() => {
+                console.log('[startup] client.login() resolved (login promise fulfilled). Waiting for Ready event...');
+            }).catch(err => {
+                console.error('Error iniciando sesión en Discord (client.login rejected):', err);
+            });
+        } catch (e) {
+            console.error('[startup] error during REST token check:', e && e.message ? e.message : e);
+        }
+    })();
 }
