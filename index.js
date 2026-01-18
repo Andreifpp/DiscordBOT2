@@ -33,8 +33,40 @@ client.on('shardReconnecting', (shardId) => console.warn('[discord shard] reconn
 let readyTimeout = null;
 function startReadyTimer() {
     if (readyTimeout) clearTimeout(readyTimeout);
-    readyTimeout = setTimeout(() => {
+    readyTimeout = setTimeout(async () => {
         console.warn('[startup] Ready event did not fire within 30s. Check network/firewall or token validity.');
+
+        // If Ready didn't fire, try a retry/backoff login sequence (best-effort)
+        try {
+            if (!global.__loginAttempts) global.__loginAttempts = 0;
+            const maxAttempts = 5;
+            global.__loginAttempts += 1;
+            if (global.__loginAttempts <= maxAttempts) {
+                const backoff = 5000 * Math.pow(2, global.__loginAttempts - 1); // exponential
+                console.warn(`[startup] Attempting reconnect #${global.__loginAttempts} after ${backoff}ms`);
+                try {
+                    await client.destroy();
+                } catch (e) {
+                    console.warn('[startup] client.destroy() error (ignored):', e && e.message ? e.message : e);
+                }
+                setTimeout(() => {
+                    // re-run login if token present
+                    const token = process.env.DISCORD_TOKEN || process.env.TOKEN || null;
+                    if (token) {
+                        console.log('[startup] retrying client.login()...');
+                        client.login(token).then(() => console.log('[startup] client.login() retry promise resolved')).catch(err => console.error('[startup] retry login rejected:', err));
+                        // restart the ready timer to wait again
+                        startReadyTimer();
+                    } else {
+                        console.warn('[startup] No token available for retry');
+                    }
+                }, backoff);
+            } else {
+                console.error('[startup] Maximum login retry attempts reached. Giving up.');
+            }
+        } catch (e) {
+            console.error('[startup] error in retry logic:', e);
+        }
     }, 30000);
 }
 startReadyTimer();
@@ -77,13 +109,17 @@ if (fs.existsSync(eventsPath)) {
 }
 
 // Evento ready
-client.once(Events.ClientReady, () => {
+    client.once(Events.ClientReady, () => {
     console.log(`✅ Bot iniciado como ${client.user.tag}`);
     console.log(`🏪 Max Market Tickets - Sistema de Soporte`);
     console.log(`📊 Sirviendo en ${client.guilds.cache.size} servidor(es)`);
     
     // Establecer actividad
     client.user.setActivity('Max Market | /ticket', { type: ActivityType.Watching });
+
+    // Clear the ready timeout and reset attempt counter
+    try { if (readyTimeout) clearTimeout(readyTimeout); } catch (e) {}
+    try { global.__loginAttempts = 0; } catch (e) {}
 });
 
 // Manejar mensajes (comandos de prefijo)
