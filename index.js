@@ -21,6 +21,24 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
+// Diagnostic event listeners to help debug Render deployment issues
+client.on('error', (err) => console.error('[discord client] error:', err));
+client.on('warn', (msg) => console.warn('[discord client] warn:', msg));
+client.on('debug', (msg) => console.log('[discord client] debug:', msg));
+client.on('shardError', (err) => console.error('[discord shard] shardError:', err));
+client.on('shardDisconnect', (closeEvent, shardId) => console.warn('[discord shard] disconnect:', shardId, closeEvent));
+client.on('shardReconnecting', (shardId) => console.warn('[discord shard] reconnecting:', shardId));
+
+// Detect if Ready hasn't fired within a timeout to surface issues in Render logs
+let readyTimeout = null;
+function startReadyTimer() {
+    if (readyTimeout) clearTimeout(readyTimeout);
+    readyTimeout = setTimeout(() => {
+        console.warn('[startup] Ready event did not fire within 30s. Check network/firewall or token validity.');
+    }, 30000);
+}
+startReadyTimer();
+
 // Colección de comandos
 client.commands = new Collection();
 
@@ -210,7 +228,10 @@ if (!discordToken) {
     const tokenSource = process.env.DISCORD_TOKEN ? 'DISCORD_TOKEN' : (process.env.TOKEN ? 'TOKEN' : 'unknown');
     console.log(`🔑 Token environment variable detected: ${tokenSource}`);
 
-    client.login(discordToken).catch(err => {
-        console.error('Error iniciando sesión en Discord:', err);
+    console.log('[startup] calling client.login() — attempting to connect to Discord gateway...');
+    client.login(discordToken).then(() => {
+        console.log('[startup] client.login() resolved (login promise fulfilled). Waiting for Ready event...');
+    }).catch(err => {
+        console.error('Error iniciando sesión en Discord (client.login rejected):', err);
     });
 }
