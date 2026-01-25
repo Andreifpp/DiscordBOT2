@@ -204,6 +204,9 @@ client.on(Events.InteractionCreate, async interaction => {
             if (interaction.customId.startsWith('invoice_') || interaction.customId.startsWith('replace_account_modal:')) {
                 const invoiceHandler = require('./handlers/invoiceHandler');
                 await invoiceHandler.handleInteraction(interaction);
+            } else if (interaction.customId === 'product_request_button' || interaction.customId === 'product_request_modal') {
+                const productRequestHandler = require('./handlers/productRequestHandler');
+                await productRequestHandler.handleInteraction(interaction);
             } else {
                 // Importar el manejador de tickets
                 const ticketHandler = require('./handlers/ticketHandler');

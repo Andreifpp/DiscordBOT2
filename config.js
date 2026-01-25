@@ -34,6 +34,7 @@ module.exports = {
   // Log / review channels
   logChannel: envOrFile(['LOG_CHANNEL_ID', 'LOG_CHANNEL'], ['logChannel', 'log_channel', 'logChannelId'], null),
   reviewChannel: envOrFile(['REVIEW_CHANNEL_ID', 'REVIEW_CHANNEL'], ['reviewChannel'], null),
+  productRequestsChannel: envOrFile(['PRODUCT_REQUESTS_CHANNEL_ID', 'PRODUCT_REQUESTS_CHANNEL'], ['productRequestsChannel'], null),
 
   // Invoices / Supabase (si aplica)
   supabaseUrl: envOrFile(['SUPABASE_URL'], ['supabaseUrl'], null),

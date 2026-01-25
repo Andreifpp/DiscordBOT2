@@ -8,6 +8,7 @@ const config = {
     logChannel: process.env.LOG_CHANNEL || "",
     ticketPanelChannel: process.env.TICKET_PANEL_CHANNEL || "1434536298143813773",
     reviewChannel: process.env.REVIEW_CHANNEL || "1458586114989228135",
+    productRequestsChannel: process.env.PRODUCT_REQUESTS_CHANNEL || "",
     supabaseUrl: process.env.SUPABASE_URL || "",
     supabaseKey: process.env.SUPABASE_KEY || "",
     supabaseTable: process.env.SUPABASE_TABLE || "invoices",
