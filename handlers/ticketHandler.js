@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, AttachmentBuilder } = require('discord.js');
 const config = require('../config');
 
 const ALLOWED_CLOSE_ROLES = new Set(
@@ -329,6 +329,14 @@ await ticketChannel.send({
         }
 
         if (ticketOwner) {
+            // First, attempt to send the transcript DM to the ticket owner
+            try {
+                await this.sendTranscriptToUser(ticketOwner, channel);
+            } catch (e) {
+                console.warn('[confirmClose] failed to send transcript DM:', e && e.message ? e.message : e);
+            }
+
+            // Then send review request
             await this.sendReviewRequest({
                 user: ticketOwner,
                 closer: interaction.user,
@@ -460,6 +468,64 @@ await ticketChannel.send({
             await user.send({ embeds: [embed], components: [selectRow] });
         } catch (error) {
             console.warn('Could not send the review request DM to the user:', error.message);
+        }
+    }
+
+    // Fetch channel history and create a transcript file, then DM it to the target user
+    static async sendTranscriptToUser(user, channel) {
+        if (!user || !channel) return;
+
+        try {
+            const lines = [];
+
+            // Fetch messages in batches up to 1000 messages (10 * 100)
+            let lastId = null;
+            let fetchedAll = false;
+            while (!fetchedAll && lines.length < 5000) {
+                const options = { limit: 100 };
+                if (lastId) options.before = lastId;
+                const msgs = await channel.messages.fetch(options).catch(() => null);
+                if (!msgs || msgs.size === 0) break;
+
+                const arr = Array.from(msgs.values());
+                for (const m of arr) {
+                    const when = new Date(m.createdTimestamp).toISOString();
+                    const author = m.author ? `${m.author.tag} (${m.author.id})` : `Unknown (${m.author ? m.author.id : '0'})`;
+                    const content = m.content ? m.content.replace(/\r?\n/g, ' \n ') : '';
+                    const attachments = m.attachments && m.attachments.size ? ` [Attachments: ${m.attachments.map(a => a.url).join(', ')}]` : '';
+                    lines.push(`[${when}] ${author}: ${content}${attachments}`);
+                }
+
+                lastId = arr[arr.length - 1].id;
+                if (msgs.size < 100) fetchedAll = true;
+            }
+
+            // We fetched messages in reverse chronological order; reverse to chronological
+            lines.reverse();
+
+            const header = `Ticket transcript: ${channel.name}\nServer: ${channel.guild ? channel.guild.name : 'Unknown'}\nChannel: ${channel.id}\nGenerated: ${new Date().toISOString()}\n\n`;
+            const text = header + lines.join('\n');
+
+            const buffer = Buffer.from(text, 'utf8');
+            const filename = `transcript-${channel.name.replace(/[^a-z0-9-_\.]/gi, '-')}.txt`;
+            const attachment = new AttachmentBuilder(buffer, { name: filename });
+
+            // Build an embed similar to the screenshot
+            const embed = new EmbedBuilder()
+                .setTitle('Ticket transcript:')
+                .setDescription(`\n\u200B`)
+                .addFields([
+                    { name: '\u200B', value: `\nServer: ${channel.guild ? channel.guild.name : 'Unknown'}` },
+                    { name: 'Channel', value: channel.toString() }
+                ])
+                .setColor(config.colors.primary)
+                .setTimestamp();
+
+            // Send DM with embed + file (best effort)
+            await user.send({ embeds: [embed], files: [attachment] });
+        } catch (err) {
+            console.warn('[sendTranscriptToUser] error creating or sending transcript:', err && err.message ? err.message : err);
+            throw err;
         }
     }
 
