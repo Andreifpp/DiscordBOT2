@@ -64,6 +64,8 @@ async function fetchSellAuthInvoice(invoiceId) {
     total_paid: inv?.total_paid ?? inv?.paid ?? inv?.paid_usd ?? null,
     items: inv?.items ?? inv?.invoice_items ?? inv?.products ?? [],
     replace: inv?.replace ?? inv?.is_replacement ?? 'No',
+    gateway: inv?.gateway ?? inv?.payment_method ?? inv?.payment_gateway ?? 'Unknown',
+    manual: inv?.manual ?? inv?.is_manual ?? 'No',
     raw: inv,
   };
 }
@@ -114,9 +116,8 @@ async function fetchInvoiceByOrderId(orderId) {
       }
     }
 
-    console.log(`[invoice] No order found for ${orderId}`);
-    // Si supabase está configurado pero no existe, devolvemos null
-    return null;
+    console.log(`[invoice] No order found in Supabase for ${orderId}, trying SellAuth...`);
+    // Si supabase está configurado pero no existe, intentar SellAuth antes de dar up
   }
 
   // 2) API propia
@@ -132,7 +133,8 @@ async function fetchInvoiceByOrderId(orderId) {
   const sellAuthInvoice = await fetchSellAuthInvoice(orderId);
   if (sellAuthInvoice) return sellAuthInvoice;
 
-  // Nada configurado
+  // Nada encontrado
+  return null;
   throw new Error(
     'No billing backend configured. Set SUPABASE_URL/SUPABASE_KEY, INVOICES_API_URL, or SELLAUTH_API_KEY + SELLAUTH_SHOP_ID.'
   );
@@ -145,8 +147,8 @@ function toDiscordTs(ts) {
   return `<t:${Math.floor(ms / 1000)}:F>`;
 }
 
-function buildInvoiceEmbed(invoice, interaction) {
-  const invoiceId = String(invoice?.id ?? invoice?.order_id ?? 'Unknown');
+function buildInvoiceEmbed(invoice, interaction, originalInvoiceId = null) {
+  const invoiceId = originalInvoiceId || String(invoice?.id ?? invoice?.order_id ?? 'Unknown');
   const shortId = invoiceId.length > 8 ? invoiceId.substring(0, 8) : invoiceId;
 
   const status = String(invoice?.status ?? 'Unknown');
@@ -169,7 +171,7 @@ function buildInvoiceEmbed(invoice, interaction) {
 
   const fmtMoney = (v) => {
     if (v === null || v === undefined) return '—';
-    if (typeof v === 'number') return `${v.toFixed(2)} €`;
+    if (typeof v === 'number') return `€${v.toFixed(2)}`;
     // si viene como string, lo mostramos tal cual
     return String(v);
   };
@@ -217,13 +219,13 @@ function buildInvoiceEmbed(invoice, interaction) {
           if (Number.isFinite(num)) {
             // Si parece cents (>= 100 y sin decimales), intenta /100
             const asEuros = Number.isInteger(num) && num >= 100 ? num / 100 : num;
-            priceStr = ` • ${asEuros.toFixed(2)} €`;
+            priceStr = ` (€${asEuros.toFixed(2)})`;
           } else {
-            priceStr = ` • ${String(price)}`;
+            priceStr = ` (${String(price)})`;
           }
         }
 
-        return `${idx + 1}. ${name} x${qty}${priceStr}`;
+        return `${config.emojis?.arroww || '>'} **${qty}x** ${name}${priceStr}`;
       }).join('\n')
     : '—';
 
@@ -325,44 +327,54 @@ function buildInvoiceEmbed(invoice, interaction) {
   const createdAt = invoice?.created_at ?? invoice?.createdAt ?? invoice?.created ?? null;
   const completedAt = invoice?.completed_at ?? invoice?.completedAt ?? invoice?.completed ?? null;
 
+  // Obtener gateway/manual info
+  const gateway = invoice?.gateway ?? invoice?.payment_method ?? invoice?.payment_gateway ?? 'Unknown';
+  const isManual = invoice?.manual ?? invoice?.is_manual ?? 'No';
+
+  // Emojis personalizados
+  const emojiMark = config.emojis?.mark || '🔖';
+  const emojiId = config.emojis?.idemoji || '🆔';
+  const emojiReplaced = config.emojis?.replaced || '🔧';
+  const emojiManuel = config.emojis?.manuelphone || '📋';
+  const emojiGateway = config.emojis?.gateway || '💳';
+  const emojiEmail = config.emojis?.email || '✉️';
+  const emojiAmms = config.emojis?.amms || '💰';
+  const emojiItems = config.emojis?.items || '📦';
+  const emojiCale = config.emojis?.cale || '📅';
+  const emojiComprar = config.emojis?.comprar || '🛒';
+
   const e = new EmbedBuilder()
-    .setTitle(`🧾 Invoice • ${shortId}`)
+    .setTitle(`${config.emojis?.all || '🔮'} ${invoiceId}`)
     .setColor(config?.colors?.primary ?? '#9d4edd')
-    .addFields(
-      { name: '🔖 Status', value: status, inline: true },
-      { name: '🆔 ID', value: shortId, inline: true },
-      { name: '⚙️ Replace', value: String(replace), inline: true },
-
-      { name: '📧 Email', value: String(email), inline: false },
-
-      {
-        name: '💰 Amounts',
-        value: `Total Price: ${fmtMoney(totalPrice)}\nTotal Paid: ${fmtMoney(totalPaid)}`,
-        inline: false,
-      },
-
-      { name: '📦 Items', value: itemsText, inline: false },
-
-      { name: '📅 Created', value: toDiscordTs(createdAt), inline: true },
-      { name: '✔️ Completed', value: completedAt ? toDiscordTs(completedAt) : '—', inline: true }
+    .setDescription(
+      `${emojiMark} **Status:** ${status}\n` +
+      `${emojiId} **ID:** ${invoiceId}\n` +
+      `${emojiReplaced} **Replaced:** ${String(replace)}\n` +
+      `${emojiManuel} **Manual:** ${String(isManual)}\n` +
+      `${emojiGateway} **Gateway:** ${gateway}\n` +
+      `${emojiEmail} **Email:** ${email}\n\n` +
+      `${emojiAmms} **Total Amount:** ${fmtMoney(totalPrice)} (Paid: ${fmtMoney(totalPaid)})\n\n` +
+      `${emojiItems} **Products**\n${itemsText}\n\n` +
+      `${emojiCale} **Created:** ${toDiscordTs(createdAt)}\n` +
+      `${emojiComprar} **Completed:** ${completedAt ? toDiscordTs(completedAt) : '—'}`
     )
     .setFooter({ text: 'Max Market • Invoice Lookup', iconURL: interaction.client.user.displayAvatarURL() })
     .setTimestamp();
 
   // Botones
-  const seeItemsBtn = new ButtonBuilder()
-    .setCustomId(`invoice_items:${shortId}:${interaction.user.id}`)
-    .setLabel('See Items')
-    .setStyle(ButtonStyle.Primary)
-    .setEmoji('📦');
+  const viewDeliveriesBtn = new ButtonBuilder()
+    .setCustomId(`invoice_items:${invoiceId}:${interaction.user.id}`)
+    .setLabel('View deliveries')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji(config.emojis?.see || '📦');
 
   const markReplaceBtn = new ButtonBuilder()
     .setCustomId(`invoice_replace:${invoiceId}`)
-    .setLabel('Mark Replace')
-    .setStyle(ButtonStyle.Danger)
-    .setEmoji('🔄');
+    .setLabel('Mark replace')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji(config.emojis?.mark || '✅');
 
-  const buttonRow = new ActionRowBuilder().addComponents(seeItemsBtn, markReplaceBtn);
+  const buttonRow = new ActionRowBuilder().addComponents(viewDeliveriesBtn, markReplaceBtn);
 
   return { embed: e, buttons: buttonRow };
 }
@@ -422,7 +434,7 @@ module.exports = {
         return interaction.editReply({ content: `❌ No se encontró información para: ${invoiceId}` });
       }
 
-      const invoiceData = buildInvoiceEmbed(invoice, interaction);
+      const invoiceData = buildInvoiceEmbed(invoice, interaction, invoiceId);
       await interaction.editReply({ embeds: [invoiceData.embed], components: [invoiceData.buttons] });
     } catch (err) {
       console.error('Invoice lookup error:', err);

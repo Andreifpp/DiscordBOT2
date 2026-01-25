@@ -201,7 +201,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
         try {
             // Manejadores de diferentes módulos
-            if (interaction.customId.startsWith('invoice_')) {
+            if (interaction.customId.startsWith('invoice_') || interaction.customId.startsWith('replace_account_modal:')) {
                 const invoiceHandler = require('./handlers/invoiceHandler');
                 await invoiceHandler.handleInteraction(interaction);
             } else {

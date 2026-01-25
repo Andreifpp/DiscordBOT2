@@ -22,10 +22,11 @@ module.exports = {
   // Token: SIEMPRE desde ENV en producción
   token: envOrFile(['TOKEN'], ['token'], null),
 
+  // Client ID (necesario para deploy-commands.js)
+  clientId: envOrFile(['CLIENT_ID'], ['clientId'], null),
+
   // IDs / roles / canales (mapeamos variantes usadas en el repo)
   guildId: envOrFile(['GUILD_ID'], ['guildId', 'guild'], null),
-  // Application / client id (used to register commands)
-  clientId: envOrFile(['CLIENT_ID', 'APPLICATION_ID'], ['clientId', 'applicationId'], null),
   // Support role may be named supportRole, supportRoleId or SUPPORT_ROLE_ID
   supportRoleId: envOrFile(['SUPPORT_ROLE_ID', 'SUPPORTROLEID'], ['supportRoleId', 'supportRole', 'support_role', 'supportRoleID'], null),
   // Category id may be called ticketsCategory, ticketCategoryId, TICKET_CATEGORY_ID, etc.
@@ -80,4 +81,7 @@ module.exports = {
 
     return { primary: p, success: s, danger: d, error: e, warning: w, secondary: sec };
   })(),
+
+  // Emojis
+  emojis: fileConfig.emojis || {},
 };

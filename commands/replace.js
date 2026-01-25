@@ -5,44 +5,71 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('replace')
         .setDescription('🔄 Enviar replacement de una orden al cliente')
-        .addStringOption(opt =>
-            opt
-                .setName('order_id')
-                .setDescription('ID de la orden')
-                .setRequired(true)
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('send')
+                .setDescription('Enviar replacement de una orden al cliente')
+                .addStringOption(opt =>
+                    opt
+                        .setName('order_id')
+                        .setDescription('ID de la orden')
+                        .setRequired(true)
+                )
+                .addUserOption(opt =>
+                    opt
+                        .setName('user')
+                        .setDescription('Usuario que recibirá el replacement')
+                        .setRequired(true)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('credentials')
+                        .setDescription('Cuenta / Credenciales (ej: email@gmail.com:password123)')
+                        .setRequired(true)
+                )
         )
-        .addUserOption(opt =>
-            opt
-                .setName('user')
-                .setDescription('Usuario que recibirá el replacement')
-                .setRequired(true)
-        )
-        .addStringOption(opt =>
-            opt
-                .setName('credentials')
-                .setDescription('Cuenta / Credenciales (ej: email@gmail.com:password123)')
-                .setRequired(true)
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('message')
+                .setDescription('Mostrar requisitos para solicitar un replacement')
         ),
 
     async execute(interaction) {
-        const orderId = interaction.options.getString('order_id');
-        const targetUser = interaction.options.getUser('user');
-        const credentials = interaction.options.getString('credentials');
+        const subcommand = interaction.options.getSubcommand();
 
-        // Crear embed de replacement
-        const replacementEmbed = new EmbedBuilder()
-            .setTitle('🔄 Replacement Ready')
-            .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
-            .setColor(config.colors.success || '#00ff00')
-            .addFields(
-                { name: '🆔 Order ID', value: orderId, inline: true },
-                { name: '👤 Staff', value: interaction.user.toString(), inline: true },
-                { name: '📝 Account / Credentials', value: `\`\`\`\n${credentials}\n\`\`\``, inline: false }
-            )
-            .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
-            .setTimestamp();
+        if (subcommand === 'message') {
+            // Crear embed con los requisitos de replacement
+            const requirementsEmbed = new EmbedBuilder()
+                .setTitle('Replacement Requirements')
+                .setDescription('To process your replacement, please provide the following information:\n\n> **Video** of you attempting to access the account.\n> **Product Invoice ID** and **Order ID**.\n> **Full proof** of payment (screenshot).\n> **Email** used for the purchase.')
+                .setColor(config.colors.primary || '#0099ff')
+                .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+                .setTimestamp();
 
-        // Enviar en el canal público (visible para todos)
-        await interaction.reply({ embeds: [replacementEmbed] });
+            await interaction.reply({ embeds: [requirementsEmbed] });
+            return;
+        }
+
+        if (subcommand === 'send') {
+            const orderId = interaction.options.getString('order_id');
+            const targetUser = interaction.options.getUser('user');
+            const credentials = interaction.options.getString('credentials');
+
+            // Crear embed de replacement
+            const replacementEmbed = new EmbedBuilder()
+                .setTitle('🔄 Replacement Ready')
+                .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
+                .setColor(config.colors.success || '#00ff00')
+                .addFields(
+                    { name: '🆔 Order ID', value: orderId, inline: true },
+                    { name: '👤 Staff', value: interaction.user.toString(), inline: true },
+                    { name: '📝 Account / Credentials', value: `\`\`\`\n${credentials}\n\`\`\``, inline: false }
+                )
+                .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+                .setTimestamp();
+
+            // Enviar en el canal público (visible para todos)
+            await interaction.reply({ embeds: [replacementEmbed] });
+        }
     }
 };

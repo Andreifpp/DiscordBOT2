@@ -82,7 +82,7 @@ async function fetchInvoiceByOrderId(orderId) {
                 if (Array.isArray(rows) && rows[0]) return rows[0];
             }
         }
-        return null;
+        // Si no se encuentra en Supabase, continuar con SellAuth
     }
 
     // 2) API propia
@@ -98,12 +98,15 @@ async function fetchInvoiceByOrderId(orderId) {
     const sellAuthInvoice = await fetchSellAuthInvoice(orderId);
     if (sellAuthInvoice) return sellAuthInvoice;
 
-    // Nothing configured
+    // No encontrado en ningún backend
+    return null;    // Nothing configured
     throw new Error('No billing backend configured. Set SUPABASE_URL/SUPABASE_KEY, INVOICES_API_URL, or SELLAUTH_API_KEY + SELLAUTH_SHOP_ID.');
 }
 
 class InvoiceHandler {
     static async handleInteraction(interaction) {
+        console.log('[InvoiceHandler] Handling interaction:', interaction.customId, 'type:', interaction.type);
+        
         if (interaction.isButton()) {
             if (interaction.customId.startsWith('invoice_items:')) {
                 await this.showItems(interaction);
@@ -113,6 +116,7 @@ class InvoiceHandler {
         }
 
         if (interaction.isModalSubmit()) {
+            console.log('[InvoiceHandler] Modal submit detected:', interaction.customId);
             if (interaction.customId.startsWith('replace_account_modal:')) {
                 await this.handleReplaceSubmit(interaction);
             }
@@ -330,19 +334,29 @@ class InvoiceHandler {
 
         const modal = new ModalBuilder()
             .setCustomId(`replace_account_modal:${invoiceId}`)
-            .setTitle('Mark as Replacement');
+            .setTitle('Send Replacement');
 
-        const dataInput = new TextInputBuilder()
-            .setCustomId('replacement_data')
-            .setLabel('Línea 1: User ID | Línea 2+: Credenciales')
-            .setPlaceholder('442385253525618699\nemail@gmail.com:password123')
+        const userIdInput = new TextInputBuilder()
+            .setCustomId('target_user_id')
+            .setLabel('Discord User ID del cliente')
+            .setPlaceholder('442385253525618699')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMinLength(17)
+            .setMaxLength(20);
+
+        const credentialsInput = new TextInputBuilder()
+            .setCustomId('replacement_credentials')
+            .setLabel('Credenciales de la cuenta')
+            .setPlaceholder('email@gmail.com:password123')
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(true)
             .setMinLength(3)
             .setMaxLength(2000);
 
-        const row = new ActionRowBuilder().addComponents(dataInput);
-        modal.addComponents(row);
+        const row1 = new ActionRowBuilder().addComponents(userIdInput);
+        const row2 = new ActionRowBuilder().addComponents(credentialsInput);
+        modal.addComponents(row1, row2);
 
         // Try to show the modal; some environments return Unknown interaction for modals
         try {
@@ -354,7 +368,7 @@ class InvoiceHandler {
             try {
                 if (!interaction.replied && !interaction.deferred) {
                     await interaction.reply({
-                        content: `No pude abrir el modal. Por favor envíame por DM al bot los datos del reemplazo para la orden ${invoiceId}.\nFormato:\n- (Opcional) primera línea: Discord User ID para enviarle el reemplazo vía DM.\n- Líneas siguientes: credenciales (ej. user@example.com:password)\n\nEjemplo:\n442385253525618699\nemail@example.com:password123`,
+                        content: `No pude abrir el modal. Por favor usa el comando /replace send order_id:${invoiceId} user:@usuario credentials:email:password`,
                         ephemeral: true
                     });
                 }
@@ -365,73 +379,54 @@ class InvoiceHandler {
     }
 
     static async handleReplaceSubmit(interaction) {
-        const [, invoiceId] = interaction.customId.split(':');
-        const rawData = interaction.fields.getTextInputValue('replacement_data');
-
-        // Allow two modes:
-        // 1) First line is a Discord User ID (17-20 digits), following lines are credentials.
-        // 2) No user ID provided: the whole content is treated as credentials and will be posted in the channel.
-        const lines = rawData.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        let targetUser = null;
-        let account = '';
-
-        if (lines.length === 0) {
-            return interaction.reply({ content: '❌ No se proporcionaron credenciales.', ephemeral: true });
-        }
-
-        const first = lines[0];
-        if (/^\d{17,20}$/.test(first)) {
-            // first line is a user id
-            const userId = first;
-            account = lines.slice(1).join('\n').trim() || 'No credentials provided';
-            if (!account || account === 'No credentials provided') {
-                return interaction.reply({ content: '❌ Debes incluir las credenciales después del User ID en la siguiente línea.', ephemeral: true });
-            }
-
-            // try fetch user, but don't fail if not found
-            targetUser = await interaction.client.users.fetch(userId).catch(() => null);
-        } else {
-            // treat entire input as account
-            account = rawData.trim();
-            // no targetUser
-        }
-
-        const replacementEmbed = new EmbedBuilder()
-            .setTitle('🔄 Replacement Ready')
-            .setDescription(targetUser ? `${targetUser.toString()}, your replacement is ready. Use the account below to access your product.` : `Replacement ready. Use the account below to access the product.`)
-            .setColor(config.colors.success)
-            .addFields(
-                { name: '🆔 Order ID', value: invoiceId || 'Unknown', inline: true },
-                { name: '👤 Staff', value: interaction.user.toString(), inline: true },
-                { name: '📝 Account / Credentials', value: `\`\`\`\n${account}\n\`\`\``, inline: false }
-            )
-            .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
-            .setTimestamp();
-
-        // Reply publicly in the same channel so the client can see it
         try {
-            await interaction.reply({ embeds: [replacementEmbed] });
-        } catch (err) {
-            console.error('[handleReplaceSubmit] failed to reply with replacement embed:', err);
-            try {
-                // fallback: send as channel message
-                if (interaction.channel && interaction.channel.send) {
-                    await interaction.channel.send({ embeds: [replacementEmbed] });
-                    // acknowledge to the staff who submitted the modal
-                    if (!interaction.replied) await interaction.followUp({ content: '✅ Replacement posted in channel.', ephemeral: true });
-                }
-            } catch (err2) {
-                console.error('[handleReplaceSubmit] fallback send failed:', err2);
-                if (!interaction.replied) await interaction.reply({ content: '❌ Algo falló al enviar el reemplazo. Revisa los logs.', ephemeral: true });
-            }
-        }
+            const [, invoiceId] = interaction.customId.split(':');
+            const userId = interaction.fields.getTextInputValue('target_user_id').trim();
+            const credentials = interaction.fields.getTextInputValue('replacement_credentials').trim();
 
-        // If we found a target user, also try to DM them the replacement (best-effort)
-        if (targetUser) {
+            console.log('[handleReplaceSubmit] invoiceId:', invoiceId, 'userId:', userId);
+
+            if (!userId || !credentials) {
+                return interaction.reply({ content: '❌ Debes proporcionar el User ID y las credenciales.', ephemeral: true });
+            }
+
+            // Validar que el userId sea un Discord ID válido
+            if (!/^\d{17,20}$/.test(userId)) {
+                return interaction.reply({ content: '❌ El User ID proporcionado no es válido. Debe ser un número de 17-20 dígitos.', ephemeral: true });
+            }
+
+            // Intentar obtener el usuario
+            let targetUser = null;
             try {
-                await targetUser.send({ embeds: [replacementEmbed] });
-            } catch (dmErr) {
-                console.warn('[handleReplaceSubmit] could not DM target user:', dmErr && dmErr.message ? dmErr.message : dmErr);
+                targetUser = await interaction.client.users.fetch(userId);
+            } catch (err) {
+                console.error('[handleReplaceSubmit] Error fetching user:', err);
+                return interaction.reply({ content: `❌ No se pudo encontrar el usuario con ID: ${userId}`, ephemeral: true });
+            }
+
+            const replacementEmbed = new EmbedBuilder()
+                .setTitle(`${config.emojis.replaced} Replacement Ready`)
+                .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
+                .setColor(config.colors.primary)
+                .addFields(
+                    { name: `${config.emojis.idemoji} Order ID`, value: invoiceId || 'Unknown', inline: true },
+                    { name: `${config.emojis.id} Staff`, value: interaction.user.toString(), inline: true },
+                    { name: `${config.emojis.manuelphone} Account / Credentials`, value: `\`\`\`\n${credentials}\n\`\`\``, inline: false }
+                )
+                .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+                .setTimestamp();
+
+            // Reply publicly in the same channel so the client can see it
+            await interaction.reply({ embeds: [replacementEmbed] });
+            console.log('[handleReplaceSubmit] Replacement sent successfully');
+        } catch (err) {
+            console.error('[handleReplaceSubmit] Error:', err);
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: `❌ Error al enviar el replacement: ${err.message}`, ephemeral: true });
+                }
+            } catch (replyErr) {
+                console.error('[handleReplaceSubmit] Failed to send error message:', replyErr);
             }
         }
     }
