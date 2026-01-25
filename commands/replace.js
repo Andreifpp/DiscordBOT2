@@ -39,11 +39,12 @@ module.exports = {
 
         if (subcommand === 'message') {
             // Crear embed con los requisitos de replacement
+            const arrowEmoji = config.emojis.arroww || '▶';
             const requirementsEmbed = new EmbedBuilder()
                 .setTitle('Replacement Requirements')
-                .setDescription('To process your replacement, please provide the following information:\n\n> **Video** of you attempting to access the account.\n> **Product Invoice ID** and **Order ID**.\n> **Full proof** of payment (screenshot).\n> **Email** used for the purchase.')
+                .setDescription(`To process your replacement, please provide the following information:\n\n${arrowEmoji} **Video** of you attempting to access the account.\n${arrowEmoji} **Product Invoice ID** and **Order ID**.\n${arrowEmoji} **Full proof** of payment (screenshot).\n${arrowEmoji} **Email** used for the purchase.`)
                 .setColor(config.colors.primary || '#0099ff')
-                .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
+                .setFooter({ text: 'Max Market • Replacement System • hoy a las 13:57', iconURL: interaction.client.user.displayAvatarURL() })
                 .setTimestamp();
 
             await interaction.reply({ embeds: [requirementsEmbed] });
