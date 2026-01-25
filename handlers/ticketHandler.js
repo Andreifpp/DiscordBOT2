@@ -332,7 +332,9 @@ await ticketChannel.send({
             // Attempt to send the transcript DM to the ticket owner.
             // Do NOT send the review DM here — the user specifically wants the transcript only.
             try {
+                console.log(`[confirmClose] attempting to send transcript to user ${ticketOwner.id}`);
                 await this.sendTranscriptToUser(ticketOwner, channel);
+                console.log(`[confirmClose] transcript DM sent to ${ticketOwner.id}`);
             } catch (e) {
                 console.warn('[confirmClose] failed to send transcript DM:', e && e.message ? e.message : e);
             }
@@ -428,39 +430,81 @@ await ticketChannel.send({
         }
     }
 
-    static async sendReviewRequest({ user, closer, ticketChannel, category }) {
-        const selectId = `ticket_review:${ticketChannel.id}:${user.id}:${closer.id}`;
-        const starOptions = [1, 2, 3, 4, 5].map(value => ({
-            label: `${'★'.repeat(value)}${'☆'.repeat(5 - value)}`,
-            description: `Rating ${value} out of 5`,
-            value: String(value)
-        }));
+    // Close a ticket via a slash command (e.g. /close ticket)
+    // This method mirrors the behavior of confirmClose but is safe to call from
+    // a command interaction (uses reply/deferReply instead of update/deferUpdate).
+    static async closeTicketFromCommand(interaction, reason = 'Sin razón especificada') {
+        const channel = interaction.channel;
 
-        const selectRow = new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId(selectId)
-                .setPlaceholder('Choose a rating 1-5')
-                .addOptions(starOptions)
-        );
+        // ensure we respond quickly to the command
+        try {
+            await interaction.deferReply({ ephemeral: true });
+        } catch (e) {
+            // ignore - proceed without defer
+        }
 
         const embed = new EmbedBuilder()
-            .setTitle('🙏 Thanks for using our support')
+            .setTitle('🔒 Ticket Closed')
             .setDescription(
-                'Your ticket has been closed. Could you rate the support you received?\n\n' +
-                'Choose a rating from 1 to 5 stars. This helps us improve.'
+                `This ticket has been closed by ${interaction.user}.\n\n` +
+                `**Reason:** ${reason}\n\n` +
+                `This channel will be deleted in **10 seconds**. Please save any important information now.`
             )
-            .addFields([
-                { name: 'Ticket', value: ticketChannel.name, inline: true },
-                { name: 'Category', value: category, inline: true },
-                { name: 'Closed by', value: closer ? closer.tag : 'Unknown', inline: true }
-            ])
-            .setColor(config.colors.primary)
+            .setColor(config.colors.error)
             .setTimestamp();
 
         try {
-            await user.send({ embeds: [embed], components: [selectRow] });
-        } catch (error) {
-            console.warn('Could not send the review request DM to the user:', error.message);
+            // post the closing message in the ticket channel
+            await channel.send({ embeds: [embed] });
+        } catch (err) {
+            console.error('[closeTicketFromCommand] failed to send close embed to channel:', err);
+        }
+
+        // extract ticket owner id from channel topic safely
+        let ticketOwner = null;
+        let userId = null;
+        if (channel.topic) {
+            const topicMatch = channel.topic.match(/\((\d+)\)/);
+            userId = topicMatch && topicMatch[1] ? topicMatch[1] : null;
+            ticketOwner = userId ? await interaction.client.users.fetch(userId).catch(() => null) : null;
+        }
+
+        if (ticketOwner) {
+            try {
+                console.log(`[closeTicketFromCommand] attempting to send transcript to user ${ticketOwner.id}`);
+                await this.sendTranscriptToUser(ticketOwner, channel);
+                console.log(`[closeTicketFromCommand] transcript DM sent to ${ticketOwner.id}`);
+            } catch (e) {
+                console.warn('[closeTicketFromCommand] failed to send transcript DM:', e && e.message ? e.message : e);
+            }
+        }
+
+        // Send log if configured
+        if (config.logChannel) {
+            if (channel.topic) {
+                const tmatch = channel.topic.match(/\((\d+)\)/);
+                const uid = tmatch && tmatch[1] ? tmatch[1] : null;
+                if (uid) {
+                    const user = await interaction.client.users.fetch(uid).catch(() => null);
+                    await this.sendTicketLog(interaction.guild, user, channel, 'unknown', 'closed', interaction.user);
+                }
+            }
+        }
+
+        // delete the channel after 10s
+        setTimeout(async () => {
+            try {
+                await channel.delete('Ticket closed via command');
+            } catch (error) {
+                console.error('Error deleting ticket channel after close command:', error);
+            }
+        }, 10000);
+
+        // final reply to the command issuer
+        try {
+            await interaction.editReply({ content: '✅ Ticket will be closed shortly.' });
+        } catch (e) {
+            try { await interaction.followUp({ content: '✅ Ticket will be closed shortly.', ephemeral: true }); } catch (_) {}
         }
     }
 
@@ -484,8 +528,28 @@ await ticketChannel.send({
                 for (const m of arr) {
                     const when = new Date(m.createdTimestamp).toISOString();
                     const author = m.author ? `${m.author.tag} (${m.author.id})` : `Unknown (${m.author ? m.author.id : '0'})`;
-                    const content = m.content ? m.content.replace(/\r?\n/g, ' \n ') : '';
+
+                    // message content
+                    let content = m.content ? m.content.replace(/\r?\n/g, ' \n ') : '';
+
+                    // if no plain content, serialize embeds (so bot embeds are included)
+                    if ((!content || content.trim() === '') && m.embeds && m.embeds.length) {
+                        const parts = [];
+                        for (const e of m.embeds) {
+                            if (e.title) parts.push(`**${e.title}**`);
+                            if (e.description) parts.push(e.description.replace(/\r?\n/g, ' \n '));
+                            if (e.fields && e.fields.length) {
+                                for (const f of e.fields) {
+                                    parts.push(`${f.name}: ${f.value}`);
+                                }
+                            }
+                        }
+                        content = parts.join(' \n ');
+                    }
+
+                    // include attachments urls
                     const attachments = m.attachments && m.attachments.size ? ` [Attachments: ${m.attachments.map(a => a.url).join(', ')}]` : '';
+
                     lines.push(`[${when}] ${author}: ${content}${attachments}`);
                 }
 
@@ -496,26 +560,73 @@ await ticketChannel.send({
             // We fetched messages in reverse chronological order; reverse to chronological
             lines.reverse();
 
-            const header = `Ticket transcript: ${channel.name}\nServer: ${channel.guild ? channel.guild.name : 'Unknown'}\nChannel: ${channel.id}\nGenerated: ${new Date().toISOString()}\n\n`;
-            const text = header + lines.join('\n');
+                const header = {
+                    title: `Ticket transcript: ${channel.name}`,
+                    server: channel.guild ? channel.guild.name : 'Unknown',
+                    serverId: channel.guild ? channel.guild.id : 'unknown',
+                    channelId: channel.id,
+                    generated: new Date().toISOString()
+                };
 
-            const buffer = Buffer.from(text, 'utf8');
-            const filename = `transcript-${channel.name.replace(/[^a-z0-9-_\.]/gi, '-')}.txt`;
+                // escape HTML
+                const escapeHtml = (str) => String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/\"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+
+                // Build HTML document
+                const htmlLines = lines.map(l => {
+                    // The lines already include ISO timestamp at start in [..] form; keep as-is but escape rest
+                    // Try to split off the timestamp
+                    const tsMatch = l.match(/^\[(.*?)\]\s*(.*)$/);
+                    let ts = '';
+                    let rest = l;
+                    if (tsMatch) {
+                        ts = tsMatch[1];
+                        rest = tsMatch[2];
+                    }
+                    return `<div class="message"><span class="time">${escapeHtml(ts)}</span> <span class="body">${escapeHtml(rest)}</span></div>`;
+                }).join('\n');
+
+                const creatorLine = (() => {
+                    if (channel.topic) {
+                        const creatorMatch = channel.topic.match(/\((\d+)\)/);
+                        if (creatorMatch && creatorMatch[1]) {
+                            return `Creator: &lt;@${creatorMatch[1]}&gt; (${creatorMatch[1]})`;
+                        }
+                    }
+                    return '';
+                })();
+
+                const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8"/>\n<meta name="viewport" content="width=device-width,initial-scale=1"/>\n<title>Ticket transcript - ${escapeHtml(channel.name)}</title>\n<style>body{font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;background:#0f0f10;color:#e6e6e6;padding:20px} .container{max-width:900px;margin:0 auto;background:#111214;border-radius:8px;padding:18px;border-left:6px solid #8b5cf6} h1{font-size:18px;margin:0 0 8px} .meta{font-size:13px;color:#b9b9bf;margin-bottom:12px} .messages{background:#0b0b0c;padding:12px;border-radius:6px;overflow:auto} .message{padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03)} .time{color:#8b8b94;font-size:12px;margin-right:8px} .body{white-space:pre-wrap} a{color:#8b5cf6}</style>\n</head>\n<body>\n<div class="container">\n<h1>📄 Ticket Transcript</h1>\n<div class="meta">Server: ${escapeHtml(header.server)} (${escapeHtml(header.serverId)})<br/>Channel: ${escapeHtml(header.channelId)}${creatorLine ? '<br/>' + creatorLine : ''}<br/>Generated: ${escapeHtml(header.generated)}</div>\n<div class="messages">\n${htmlLines}\n</div>\n</div>\n</body>\n</html>`;
+
+                const buffer = Buffer.from(html, 'utf8');
+                const filename = `transcript-${channel.name.replace(/[^a-z0-9-_\\.]/gi, '-')}.html`;
             const attachment = new AttachmentBuilder(buffer, { name: filename });
 
-            // Build an embed similar to the screenshot
-            const embed = new EmbedBuilder()
-                .setTitle('Ticket transcript:')
-                .setDescription(`\n\u200B`)
-                .addFields([
-                    { name: '\u200B', value: `\nServer: ${channel.guild ? channel.guild.name : 'Unknown'}` },
-                    { name: 'Channel', value: channel.toString() }
-                ])
-                .setColor(config.colors.primary)
-                .setTimestamp();
+            // Build an embed matching the requested style: title + short description + header block
+            const headerLines = [];
+            headerLines.push(`Ticket transcript ${channel.name}`);
+            headerLines.push(`Server: ${channel.guild ? channel.guild.name : 'Unknown'} (${channel.guild ? channel.guild.id : 'unknown'})`);
+            headerLines.push(`Channel: ${channel.id}`);
+            // attempt to include creator line if present
+            if (channel.topic) {
+                const creatorMatch = channel.topic.match(/\((\d+)\)/);
+                if (creatorMatch && creatorMatch[1]) {
+                    headerLines.push(`Creator: <@${creatorMatch[1]}> (${creatorMatch[1]})`);
+                }
+            }
+            headerLines.push(`Closed: ${new Date().toLocaleString()}`);
 
-            // Send DM with embed + file (best effort)
-            await user.send({ embeds: [embed], files: [attachment] });
+            const headerBlock = '```\n' + headerLines.join('\n') + '\n```';
+
+            // Send a plain message with the requested two-line header and attach only the .txt file
+            const messageContent = `📄 Ticket Transcript\nHere is the complete conversation from your ticket:`;
+
+            const dm = await user.send({ content: messageContent, files: [attachment] });
+            if (dm) console.log(`[sendTranscriptToUser] transcript DM sent to ${user.id}`);
         } catch (err) {
             console.warn('[sendTranscriptToUser] error creating or sending transcript:', err && err.message ? err.message : err);
             throw err;

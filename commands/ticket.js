@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
+const TicketHandler = require('../handlers/ticketHandler');
 const ALLOWED_CLOSE_ROLES = new Set((config.allowedCloseRoles || []).map(String));
 
 module.exports = {
@@ -136,8 +137,7 @@ module.exports = {
 
         // Permission check (only allow specific roles)
         const member = interaction.member;
-        const hasAllowedRole = member.roles.cache.some(r => ALLOWED_CLOSE_ROLES.has(String(r.id)));
-        if (!hasAllowedRole) {
+        if (!TicketHandler.hasClosePermission(member)) {
             return interaction.reply({ content: '❌ No tienes permiso para cerrar este ticket.', ephemeral: true });
         }
 

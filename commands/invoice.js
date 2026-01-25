@@ -159,13 +159,13 @@ function buildInvoiceEmbed(invoice, interaction) {
     invoice?.customer?.email ??
     'Unknown';
 
-  const totalPrice =
+  let totalPrice =
     invoice?.total_price ??
     invoice?.total ??
     invoice?.amount ??
     (typeof invoice?.total_cents === 'number' ? invoice.total_cents / 100 : null);
 
-  const totalPaid = invoice?.total_paid ?? invoice?.paid ?? null;
+  let totalPaid = invoice?.total_paid ?? invoice?.paid ?? null;
 
   const fmtMoney = (v) => {
     if (v === null || v === undefined) return '—';
@@ -226,6 +226,101 @@ function buildInvoiceEmbed(invoice, interaction) {
         return `${idx + 1}. ${name} x${qty}${priceStr}`;
       }).join('\n')
     : '—';
+
+  // Compute summed total from items as a best-effort fallback (handle cents vs euros)
+  let computedTotal = 0;
+  try {
+    for (const it of items.slice(0, 100)) {
+      let qty = 1;
+      let price = null;
+
+      if (typeof it === 'string') {
+        try {
+          const parsed = JSON.parse(it);
+          qty = parsed.qty ?? parsed.quantity ?? 1;
+          price = parsed.unitAmount ?? parsed.price ?? parsed.total ?? null;
+        } catch {
+          qty = 1;
+          price = null;
+        }
+      } else if (it) {
+        qty = it?.quantity ?? it?.qty ?? 1;
+        price = it?.price ?? it?.unit_price ?? it?.unitAmount ?? it?.total ?? null;
+      }
+
+      if (price !== null && price !== undefined && price !== '') {
+        const num = Number(price);
+        if (Number.isFinite(num)) {
+          const asEuros = Number.isInteger(num) && num >= 100 ? num / 100 : num;
+          computedTotal += asEuros * (Number(qty) || 1);
+        }
+      }
+    }
+  } catch (e) {
+    // ignore computation errors
+  }
+
+  // If reported totalPrice is missing or clearly incorrect (smaller than computed total), prefer computedTotal
+  if ((totalPrice === null || totalPrice === undefined || totalPrice === '') && computedTotal > 0) {
+    totalPrice = computedTotal;
+  } else if (typeof totalPrice === 'number' && computedTotal > 0 && totalPrice + 0.01 < computedTotal) {
+    // If invoice reports less than sum of items (allow small rounding), override
+    totalPrice = computedTotal;
+  }
+
+  // Try to infer totalPaid from raw invoice data if missing
+  if (totalPaid === null || totalPaid === undefined) {
+    try {
+      const raw = invoice?.raw ?? {};
+      let paidSum = 0;
+      let found = false;
+
+      if (Array.isArray(raw.payments) && raw.payments.length) {
+        for (const p of raw.payments) {
+          const a = p.amount ?? p.amount_cents ?? p.paid_amount ?? p.value ?? null;
+          if (a !== null && a !== undefined) {
+            const num = Number(a);
+            if (Number.isFinite(num)) {
+              const asEuros = Number.isInteger(num) && num >= 100 ? num / 100 : num;
+              paidSum += asEuros;
+              found = true;
+            }
+          }
+        }
+      }
+
+      // some APIs use transactions array
+      if (!found && Array.isArray(raw.transactions) && raw.transactions.length) {
+        for (const t of raw.transactions) {
+          const a = t.amount ?? t.amount_cents ?? t.value ?? null;
+          if (a !== null && a !== undefined) {
+            const num = Number(a);
+            if (Number.isFinite(num)) {
+              const asEuros = Number.isInteger(num) && num >= 100 ? num / 100 : num;
+              paidSum += asEuros;
+              found = true;
+            }
+          }
+        }
+      }
+
+      // fallback single fields
+      if (!found) {
+        const cand = raw.total_paid ?? raw.paid ?? raw.paid_amount ?? raw.amount_paid ?? null;
+        if (cand !== null && cand !== undefined) {
+          const num = Number(cand);
+          if (Number.isFinite(num)) {
+            paidSum = Number.isInteger(num) && num >= 100 ? num / 100 : num;
+            found = true;
+          }
+        }
+      }
+
+      if (found) totalPaid = paidSum;
+    } catch (e) {
+      // ignore
+    }
+  }
 
   const createdAt = invoice?.created_at ?? invoice?.createdAt ?? invoice?.created ?? null;
   const completedAt = invoice?.completed_at ?? invoice?.completedAt ?? invoice?.completed ?? null;
