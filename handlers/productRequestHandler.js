@@ -43,7 +43,7 @@ module.exports = {
                 .setThumbnail(user.displayAvatarURL())
                 .setTimestamp()
                 .setFooter({ 
-                    text: 'Plug Market - Product Request System',
+                    text: 'Max Market - Product Request System',
                     iconURL: interaction.client.user.displayAvatarURL()
                 });
 
@@ -72,13 +72,13 @@ module.exports = {
                 // Confirm to user
                 const confirmEmbed = new EmbedBuilder()
                     .setTitle('✅ Request Sent')
-                    .setDescription('Your product request has been sent to the Plug System team. Thank you for your suggestion!')
+                    .setDescription('Your product request has been sent to the Max Market team. Thank you for your suggestion!')
                     .setColor(config.colors.success)
                     .addFields(
                         { name: 'Your Request', value: productRequest }
                     )
                     .setFooter({ 
-                        text: 'Este formulario se enviará a Plug System. No compartas contraseñas ni ningún tipo de información confidencial.'
+                        text: 'Este formulario se enviará a Max Market. No compartas contraseñas ni ningún tipo de información confidencial.'
                     });
 
                 await interaction.editReply({

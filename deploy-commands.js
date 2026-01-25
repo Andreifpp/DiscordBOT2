@@ -28,24 +28,34 @@ const rest = new REST().setToken(config.token);
     try {
         console.log(`\\n🔄 Iniciando registro de ${commands.length} comandos slash...`);
 
-        // Registrar comandos globalmente (quita guildId para comandos globales)
-        // Para desarrollo, usa guildId para registro instantáneo
-        let data;
-        
-        if (config.guildId) {
-            // Comandos de servidor (instantáneos)
-            data = await rest.put(
-                Routes.applicationGuildCommands(config.clientId, config.guildId),
-                { body: commands },
-            );
-            console.log(`✅ ${data.length} comandos registrados exitosamente en el servidor.`);
+        // Obtener lista de servidores (puede ser uno, múltiples o ninguno para global)
+        const guildIds = process.env.GUILD_IDS 
+            ? process.env.GUILD_IDS.split(',').map(id => id.trim()).filter(Boolean)
+            : (config.guildId ? [config.guildId] : []);
+
+        if (guildIds.length > 0) {
+            // Comandos de servidor (instantáneos) - registrar en cada servidor
+            console.log(`📋 Registrando comandos en ${guildIds.length} servidor(es)...`);
+            
+            for (const guildId of guildIds) {
+                try {
+                    const data = await rest.put(
+                        Routes.applicationGuildCommands(config.clientId, guildId),
+                        { body: commands },
+                    );
+                    console.log(`✅ ${data.length} comandos registrados en servidor: ${guildId}`);
+                } catch (error) {
+                    console.error(`❌ Error en servidor ${guildId}:`, error.message);
+                }
+            }
         } else {
             // Comandos globales (pueden tardar hasta 1 hora)
-            data = await rest.put(
+            const data = await rest.put(
                 Routes.applicationCommands(config.clientId),
                 { body: commands },
             );
             console.log(`✅ ${data.length} comandos registrados exitosamente globalmente.`);
+            console.log('⏳ Los comandos globales pueden tardar hasta 1 hora en aparecer.');
         }
 
         console.log('\\n🎉 ¡Registro de comandos completado!');

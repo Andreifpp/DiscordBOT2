@@ -17,15 +17,16 @@ module.exports = {
         }
 
         const embed = new EmbedBuilder()
-            .setTitle('🔄 Restock a Product / Add a New Product')
-            .setDescription('• Request a **restock** of an product\n• Suggest **new products** you would like us to add\n\nPlug Market - Your trusted marketplace')
+            .setTitle('<:1457027324951138345:1465084788661551229> Restock a Product / Add a New Product')
+            .setDescription('• Request a **restock** of an product\n• Suggest **new products** you would like us to add\n\nMax Market - Your trusted marketplace')
             .setColor(config.colors.primary)
             .setTimestamp();
 
         const button = new ButtonBuilder()
             .setCustomId('product_request_button')
-            .setLabel('🔄 Restock a Product / Add a New product')
-            .setStyle(ButtonStyle.Success);
+            .setLabel('Restock a Product / Add a New product')
+            .setEmoji('1465084788661551229')
+            .setStyle(ButtonStyle.Secondary);
 
         const row = new ActionRowBuilder()
             .addComponents(button);
