@@ -40,6 +40,9 @@ module.exports = {
         if (subcommand === 'message') {
             // Crear embed con los requisitos de replacement
             const arrowEmoji = config.emojis.arroww || '▶';
+            const replaceEmoji = config.emojis.replace || '🔄';
+            const emailEmoji = config.emojis.email || '📧';
+            
             const requirementsEmbed = new EmbedBuilder()
                 .setTitle('Replacement Requirements')
                 .setDescription(`To process your replacement, please provide the following information:\n\n${arrowEmoji} **Video** of you attempting to access the account.\n${arrowEmoji} **Product Invoice ID** and **Order ID**.\n${arrowEmoji} **Full proof** of payment (screenshot).\n${arrowEmoji} **Email** used for the purchase.`)
@@ -57,14 +60,18 @@ module.exports = {
             const credentials = interaction.options.getString('credentials');
 
             // Crear embed de replacement
+            const replaceEmoji = config.emojis.replace || '🔄';
+            const idEmoji = config.emojis.idemoji || '🆔';
+            const emailEmoji = config.emojis.email || '📧';
+            
             const replacementEmbed = new EmbedBuilder()
-                .setTitle('🔄 Replacement Ready')
+                .setTitle(`${replaceEmoji} Replacement Ready`)
                 .setDescription(`${targetUser.toString()}, your replacement is ready. Use the account below to access your product.`)
                 .setColor(config.colors.success || '#00ff00')
                 .addFields(
-                    { name: '🆔 Order ID', value: orderId, inline: true },
+                    { name: `${idEmoji} Order ID`, value: orderId, inline: true },
                     { name: '👤 Staff', value: interaction.user.toString(), inline: true },
-                    { name: '📝 Account / Credentials', value: `\`\`\`\n${credentials}\n\`\`\``, inline: false }
+                    { name: `${emailEmoji} Account / Credentials`, value: `\`\`\`\n${credentials}\n\`\`\``, inline: false }
                 )
                 .setFooter({ text: 'Max Market • Replacement System', iconURL: interaction.client.user.displayAvatarURL() })
                 .setTimestamp();
