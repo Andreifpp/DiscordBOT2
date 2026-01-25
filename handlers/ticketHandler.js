@@ -329,20 +329,13 @@ await ticketChannel.send({
         }
 
         if (ticketOwner) {
-            // First, attempt to send the transcript DM to the ticket owner
+            // Attempt to send the transcript DM to the ticket owner.
+            // Do NOT send the review DM here — the user specifically wants the transcript only.
             try {
                 await this.sendTranscriptToUser(ticketOwner, channel);
             } catch (e) {
                 console.warn('[confirmClose] failed to send transcript DM:', e && e.message ? e.message : e);
             }
-
-            // Then send review request
-            await this.sendReviewRequest({
-                user: ticketOwner,
-                closer: interaction.user,
-                ticketChannel: channel,
-                category: categoryFromTopic
-            });
         }
 
         // Send log if configured
