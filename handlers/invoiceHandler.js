@@ -1,5 +1,5 @@
 const { EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
-const config = require('../config');
+const config = process.env.NODE_ENV === 'production' ? require('../config-production') : require('../config');
 
 // small fetch helper with timeout
 function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {

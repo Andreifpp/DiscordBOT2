@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
-const config = require('../config');
+const config = process.env.NODE_ENV === 'production' ? require('../config-production') : require('../config');
 const TicketHandler = require('../handlers/ticketHandler');
 const ALLOWED_CLOSE_ROLES = new Set((config.allowedCloseRoles || []).map(String));
 

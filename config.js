@@ -83,5 +83,39 @@ module.exports = {
   })(),
 
   // Emojis
-  emojis: fileConfig.emojis || {},
+  emojis: (() => {
+    // Si hay emojis en fileConfig (local), usarlos
+    if (fileConfig.emojis && Object.keys(fileConfig.emojis).length > 0) {
+      return fileConfig.emojis;
+    }
+    
+    // En producción, leer desde variables de entorno o usar defaults
+    return {
+      ticket: process.env.EMOJI_TICKET || '🎫',
+      purchases: process.env.EMOJI_PURCHASES || '🛒',
+      support: process.env.EMOJI_SUPPORT || '💬',
+      replace: process.env.EMOJI_REPLACE || '🔄',
+      email: process.env.EMOJI_EMAIL || '📧',
+      id: process.env.EMOJI_ID || '🆔',
+      notReceived: process.env.EMOJI_NOT_RECEIVED || '📦',
+      close: process.env.EMOJI_CLOSE || '🔒',
+      delete: process.env.EMOJI_DELETE || '🗑️',
+      add: process.env.EMOJI_ADD || '➕',
+      remove: process.env.EMOJI_REMOVE || '➖',
+      see: process.env.EMOJI_SEE || '👀',
+      replaced: process.env.EMOJI_REPLACED || '🔁',
+      mark: process.env.EMOJI_MARK || '🔖',
+      manuelphone: process.env.EMOJI_MANUELPHONE || '📱',
+      items: process.env.EMOJI_ITEMS || '📋',
+      info: process.env.EMOJI_INFO || 'ℹ️',
+      idemoji: process.env.EMOJI_IDEMOJI || '🆔',
+      gateway: process.env.EMOJI_GATEWAY || '🌐',
+      amms: process.env.EMOJI_AMMS || '⚙️',
+      actions: process.env.EMOJI_ACTIONS || '⚡',
+      comprar: process.env.EMOJI_COMPRAR || '🛍️',
+      cale: process.env.EMOJI_CALE || '📅',
+      arroww: process.env.EMOJI_ARROWW || '▶',
+      all: process.env.EMOJI_ALL || '📦'
+    };
+  })(),
 };

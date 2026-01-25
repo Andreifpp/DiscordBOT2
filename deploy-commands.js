@@ -1,7 +1,7 @@
 const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
+const config = process.env.NODE_ENV === 'production' ? require('./config-production') : require('./config');
 
 const commands = [];
 

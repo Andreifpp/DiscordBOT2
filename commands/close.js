@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const TicketHandler = require('../handlers/ticketHandler');
-const config = require('../config');
+const config = process.env.NODE_ENV === 'production' ? require('../config-production') : require('../config');
 
 module.exports = {
     data: new SlashCommandBuilder()

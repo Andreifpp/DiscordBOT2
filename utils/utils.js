@@ -1,4 +1,4 @@
-const config = require('../config');
+const config = process.env.NODE_ENV === 'production' ? require('../config-production') : require('../config');
 
 class EmbedUtils {
     static createSuccessEmbed(title, description) {

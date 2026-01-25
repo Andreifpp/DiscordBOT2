@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const config = require('../config');
+const config = process.env.NODE_ENV === 'production' ? require('../config-production') : require('../config');
 
 module.exports = {
     data: new SlashCommandBuilder()
