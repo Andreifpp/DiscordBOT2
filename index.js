@@ -24,52 +24,9 @@ const client = new Client({
 // Diagnostic event listeners to help debug Render deployment issues
 client.on('error', (err) => console.error('[discord client] error:', err));
 client.on('warn', (msg) => console.warn('[discord client] warn:', msg));
-client.on('debug', (msg) => console.log('[discord client] debug:', msg));
+// Comentado debug para reducir spam de logs
+// client.on('debug', (msg) => console.log('[discord client] debug:', msg));
 client.on('shardError', (err) => console.error('[discord shard] shardError:', err));
-client.on('shardDisconnect', (closeEvent, shardId) => console.warn('[discord shard] disconnect:', shardId, closeEvent));
-client.on('shardReconnecting', (shardId) => console.warn('[discord shard] reconnecting:', shardId));
-
-// Detect if Ready hasn't fired within a timeout to surface issues in Render logs
-let readyTimeout = null;
-function startReadyTimer() {
-    if (readyTimeout) clearTimeout(readyTimeout);
-    readyTimeout = setTimeout(async () => {
-        console.warn('[startup] Ready event did not fire within 30s. Check network/firewall or token validity.');
-
-        // If Ready didn't fire, try a retry/backoff login sequence (best-effort)
-        try {
-            if (!global.__loginAttempts) global.__loginAttempts = 0;
-            const maxAttempts = 5;
-            global.__loginAttempts += 1;
-            if (global.__loginAttempts <= maxAttempts) {
-                const backoff = 5000 * Math.pow(2, global.__loginAttempts - 1); // exponential
-                console.warn(`[startup] Attempting reconnect #${global.__loginAttempts} after ${backoff}ms`);
-                try {
-                    await client.destroy();
-                } catch (e) {
-                    console.warn('[startup] client.destroy() error (ignored):', e && e.message ? e.message : e);
-                }
-                setTimeout(() => {
-                    // re-run login if token present
-                    const token = process.env.DISCORD_TOKEN || process.env.TOKEN || null;
-                    if (token) {
-                        console.log('[startup] retrying client.login()...');
-                        client.login(token).then(() => console.log('[startup] client.login() retry promise resolved')).catch(err => console.error('[startup] retry login rejected:', err));
-                        // restart the ready timer to wait again
-                        startReadyTimer();
-                    } else {
-                        console.warn('[startup] No token available for retry');
-                    }
-                }, backoff);
-            } else {
-                console.error('[startup] Maximum login retry attempts reached. Giving up.');
-            }
-        } catch (e) {
-            console.error('[startup] error in retry logic:', e);
-        }
-    }, 30000);
-}
-startReadyTimer();
 
 // Colección de comandos
 client.commands = new Collection();
@@ -108,18 +65,14 @@ if (fs.existsSync(eventsPath)) {
     }
 }
 
-// Evento ready
-    client.once(Events.ClientReady, () => {
+// Evento ready (handler principal)
+client.once(Events.ClientReady, () => {
     console.log(`✅ Bot iniciado como ${client.user.tag}`);
     console.log(`🏪 Max Market Tickets - Sistema de Soporte`);
     console.log(`📊 Sirviendo en ${client.guilds.cache.size} servidor(es)`);
     
     // Establecer actividad
     client.user.setActivity('Max Market | /ticket', { type: ActivityType.Watching });
-
-    // Clear the ready timeout and reset attempt counter
-    try { if (readyTimeout) clearTimeout(readyTimeout); } catch (e) {}
-    try { global.__loginAttempts = 0; } catch (e) {}
 });
 
 // Manejar mensajes (comandos de prefijo)
@@ -261,38 +214,13 @@ server.listen(PORT, () => {
 // Iniciar el bot (aceptamos TOKEN o DISCORD_TOKEN)
 const discordToken = process.env.DISCORD_TOKEN || process.env.TOKEN || null;
 if (!discordToken) {
-    console.error("❌ TOKEN (o DISCORD_TOKEN) no definido en variables de entorno. El bot no iniciará sesión en Discord. Agrega TOKEN o DISCORD_TOKEN en .env o en la plataforma de hosting.");
+    console.error("❌ TOKEN (o DISCORD_TOKEN) no definido en variables de entorno.");
+    process.exit(1);
 } else {
-    // Log which env var provided the token (do not log the token value)
-    const tokenSource = process.env.DISCORD_TOKEN ? 'DISCORD_TOKEN' : (process.env.TOKEN ? 'TOKEN' : 'unknown');
-    console.log(`🔑 Token environment variable detected: ${tokenSource}`);
-
-    (async () => {
-        try {
-            console.log('[startup] performing REST token validity check (GET /users/@me)');
-            const token = discordToken;
-            const res = await fetch('https://discord.com/api/v10/users/@me', {
-                headers: { Authorization: `Bot ${token}`, Accept: 'application/json' }
-            });
-
-            if (!res.ok) {
-                const txt = await res.text().catch(() => '');
-                console.error(`[startup] REST token check failed: ${res.status} ${res.statusText} ${txt}`);
-                console.error('[startup] Aborting gateway login due to invalid token or REST API access.');
-                return;
-            }
-
-            const me = await res.json().catch(() => null);
-            console.log(`[startup] REST token valid. Bot user: ${me ? `${me.username}#${me.discriminator || me.discriminator}` : 'unknown'} (id: ${me ? me.id : 'unknown'})`);
-
-            console.log('[startup] calling client.login() — attempting to connect to Discord gateway...');
-            client.login(token).then(() => {
-                console.log('[startup] client.login() resolved (login promise fulfilled). Waiting for Ready event...');
-            }).catch(err => {
-                console.error('Error iniciando sesión en Discord (client.login rejected):', err);
-            });
-        } catch (e) {
-            console.error('[startup] error during REST token check:', e && e.message ? e.message : e);
-        }
-    })();
+    console.log(`🔑 Iniciando bot con Discord...`);
+    
+    client.login(discordToken).catch(err => {
+        console.error('❌ Error iniciando sesión en Discord:', err.message);
+        process.exit(1);
+    });
 }
