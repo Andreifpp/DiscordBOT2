@@ -127,8 +127,11 @@ module.exports = {
     async closeTicket(interaction) {
         const channel = interaction.channel;
         
-        // Check if this is a ticket channel
-        if (!channel.name.startsWith('ticket-')) {
+        // Check if this is a ticket channel or replace channel
+        const channelName = channel.name ? channel.name.toLowerCase() : '';
+        const isTicketChannel = channelName.includes('ticket') || channelName.includes('replace');
+        
+        if (!isTicketChannel) {
             return interaction.reply({
                 content: '❌ This command can only be used in ticket channels.',
                 ephemeral: true
@@ -174,8 +177,11 @@ module.exports = {
         const channel = interaction.channel;
         const user = interaction.options.getUser('user');
 
-        // Check if this is a ticket channel
-        if (!channel.name.startsWith('ticket-')) {
+        // Check if this is a ticket channel or replace channel
+        const channelName = channel.name ? channel.name.toLowerCase() : '';
+        const isTicketChannel = channelName.includes('ticket') || channelName.includes('replace');
+        
+        if (!isTicketChannel) {
             return interaction.reply({
                 content: '❌ This command can only be used in ticket channels.',
                 ephemeral: true
@@ -218,8 +224,11 @@ module.exports = {
         const channel = interaction.channel;
         const user = interaction.options.getUser('user');
 
-        // Check if this is a ticket channel
-        if (!channel.name.startsWith('ticket-')) {
+        // Check if this is a ticket channel or replace channel
+        const channelName = channel.name ? channel.name.toLowerCase() : '';
+        const isTicketChannel = channelName.includes('ticket') || channelName.includes('replace');
+        
+        if (!isTicketChannel) {
             return interaction.reply({
                 content: '❌ This command can only be used in ticket channels.',
                 ephemeral: true

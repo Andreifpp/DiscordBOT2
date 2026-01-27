@@ -125,6 +125,7 @@ client.on(Events.MessageCreate, async message => {
 client.on(Events.InteractionCreate, async interaction => {
     // Comandos slash
     if (interaction.isChatInputCommand()) {
+        console.log(`[index.js] Comando recibido: ${interaction.commandName} en canal: ${interaction.channel?.name}`);
         const command = client.commands.get(interaction.commandName);
 
         if (!command) {

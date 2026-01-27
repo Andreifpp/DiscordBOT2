@@ -27,9 +27,20 @@ module.exports = {
             }
 
             const channel = interaction.channel;
+            // Debug: ver el nombre real del canal
+            console.log('[close.js] Channel name:', channel.name);
+            console.log('[close.js] Channel name (raw):', JSON.stringify(channel.name));
+            
             // Permitir cerrar tanto tickets normales como canales de replace
-            if (!channel || !channel.name || (!channel.name.startsWith('ticket-') && !channel.name.includes('replace'))) {
-                return interaction.reply({ content: '❌ This command can only be used in ticket channels.', ephemeral: true });
+            // Normalizar el nombre del canal (minúsculas, sin emojis)
+            const channelName = channel.name ? channel.name.toLowerCase() : '';
+            const isTicketChannel = channelName.includes('ticket') || channelName.includes('replace');
+            
+            console.log('[close.js] channelName (lowercase):', channelName);
+            console.log('[close.js] isTicketChannel:', isTicketChannel);
+            
+            if (!channel || !channelName || !isTicketChannel) {
+                return interaction.reply({ content: `❌ This command can only be used in ticket channels. (Current: ${channel.name})`, ephemeral: true });
             }
 
             const reason = interaction.options.getString('reason') || 'Sin razón especificada';
