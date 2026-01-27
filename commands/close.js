@@ -27,7 +27,8 @@ module.exports = {
             }
 
             const channel = interaction.channel;
-            if (!channel || !channel.name || !channel.name.startsWith('ticket-')) {
+            // Permitir cerrar tanto tickets normales como canales de replace
+            if (!channel || !channel.name || (!channel.name.startsWith('ticket-') && !channel.name.includes('replace'))) {
                 return interaction.reply({ content: '❌ This command can only be used in ticket channels.', ephemeral: true });
             }
 
